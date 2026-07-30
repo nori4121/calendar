@@ -354,7 +354,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b22";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b23";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -496,6 +496,7 @@ function renderView(){
   requestAnimationFrame(()=>{
     if(pendingScrollNow){ pendingScrollNow=false; scrollToNow(false); }
     updateNowBtn();
+    positionFabs();                      // 本文の右端に合わせて配置
   });
 }
 
@@ -933,6 +934,18 @@ function updateNowBtn(){
   const fabs = document.getElementById("fabs");
   if(fabs) fabs.classList.add("show");               // 常に表示（押しても消えない）
 }
+/* ボタンを「カレンダー本文の右端」に合わせて置く（画面右端に飛ばさない） */
+function positionFabs(){
+  const fabs = document.getElementById("fabs");
+  const anchor = document.querySelector(".banner");   // 本文と同じ幅(最大640px)
+  if(!fabs || !anchor) return;
+  const r = anchor.getBoundingClientRect();
+  const w = fabs.offsetWidth || 54;
+  let left = r.right + 12;                             // 本文のすぐ右外
+  if(left + w > window.innerWidth - 10) left = window.innerWidth - w - 12;   // 画面をはみ出すなら右端へ
+  fabs.style.left = Math.round(left) + "px";
+  fabs.style.right = "auto";
+}
 document.getElementById("nowBtn").addEventListener("click", ()=>{
   if(document.querySelector(".tl-now")) scrollToNow(true);          // 赤線があればそこへ
   else { anchor = new Date(); pendingScrollNow = true; refresh(); } // 範囲外なら今日へ飛んでから
@@ -945,7 +958,7 @@ window.addEventListener("scroll", ()=>{
   if(nowTick) return; nowTick = true;
   requestAnimationFrame(()=>{ nowTick = false; updateNowBtn(); });
 }, { passive:true });
-window.addEventListener("resize", updateNowBtn, { passive:true });
+window.addEventListener("resize", ()=>{ updateNowBtn(); positionFabs(); }, { passive:true });
 
 /* ============================================================
    PWA: ホーム画面に追加すると全画面＆アイコンで起動できるように
