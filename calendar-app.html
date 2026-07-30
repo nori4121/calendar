@@ -335,7 +335,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b15";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b16";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -958,6 +958,11 @@ function installManifest(){
   const link = document.createElement("link");
   link.rel = "manifest"; link.href = url;
   document.head.appendChild(link);
+
+  // タブ／ブックマークのファビコン（同じ絵）
+  const fav = document.createElement("link");
+  fav.rel = "icon"; fav.type = "image/svg+xml"; fav.href = icon;
+  document.head.appendChild(fav);
 
   // iOS 用のアイコンも同じ絵で（ホーム画面追加時）
   const al = document.createElement("link");
