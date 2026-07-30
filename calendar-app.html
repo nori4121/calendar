@@ -129,13 +129,15 @@
   /* ---- 上部の一言スペース（固定表示・白い枠） ---- */
   .banner{position:sticky;top:0;z-index:15;max-width:640px;margin:0 0 6px;padding:6px 0;background:var(--paper)}
   .bannertext{
+    display:block;width:100%;box-sizing:border-box;
     font-family:var(--gothic);font-size:14px;line-height:1.7;color:var(--ink);
     background:#fff;border:1px solid var(--grid-strong);border-radius:3px;
-    padding:9px 13px;outline:none;white-space:pre-wrap;word-break:break-word;min-height:1.7em;
+    padding:9px 13px;outline:none;resize:none;overflow:hidden;
+    white-space:pre-wrap;word-break:break-word;
     box-shadow:0 1px 4px -2px rgba(0,0,0,.28)
   }
   .bannertext:focus{border-color:var(--ink)}
-  .bannertext:empty::before{content:attr(data-ph);color:var(--ink-faint)}
+  .bannertext::placeholder{color:var(--ink-faint)}
 
   /* ---- mode switch ---- */
   .modes{display:inline-flex;border:1px solid var(--ink)}
@@ -301,8 +303,8 @@
 <div class="cals" id="cals"></div>
 
 <div class="banner">
-  <div class="bannertext" id="bannerText" contenteditable="true"
-       data-ph="タップして一言を（備忘録・座右の銘など）"></div>
+  <textarea class="bannertext" id="bannerText" rows="1"
+    placeholder="タップして一言を（備忘録・座右の銘など）"></textarea>
 </div>
 
 <div id="view"></div>
@@ -352,7 +354,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b19";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b21";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -992,19 +994,25 @@ function setBannerH(){                     // 固定バナーの高さを CSS �
   const b = document.querySelector(".banner");
   if(b) document.documentElement.style.setProperty("--bannerH", b.offsetHeight + "px");
 }
+function fitBanner(){                      // 入力欄の高さを中身に合わせる（自動で伸びる）
+  const el = document.getElementById("bannerText");
+  if(!el) return;
+  el.style.height = "auto"; el.style.height = (el.scrollHeight + 2) + "px";   // +2 は枠線ぶん（最終行が切れないように）
+  setBannerH();
+}
 function initBanner(){
   const el = document.getElementById("bannerText");
   if(!el) return;
-  try{ el.textContent = localStorage.getItem("cal_banner") || ""; }catch(e){}
+  try{ el.value = localStorage.getItem("cal_banner") || ""; }catch(e){}
+  fitBanner();
   el.addEventListener("input", ()=>{
-    const txt = el.innerText.replace(/\n+$/,"");
+    const txt = el.value;
     try{ localStorage.setItem("cal_banner", txt); }catch(e){}
-    setBannerH();
+    fitBanner();
     clearTimeout(bannerSaveTimer);
     bannerSaveTimer = setTimeout(()=>saveBannerRemote(txt), 900);   // 少し待ってからGoogleへ
   });
-  window.addEventListener("resize", setBannerH, { passive:true });
-  setBannerH();
+  window.addEventListener("resize", fitBanner, { passive:true });
 }
 /* 接続後に呼ぶ：Google側の保管イベントから文章を読み込む */
 async function loadBannerRemote(){
@@ -1018,9 +1026,9 @@ async function loadBannerRemote(){
     const t = (ev.extendedProperties && ev.extendedProperties.private && ev.extendedProperties.private.banner) || "";
     const el = document.getElementById("bannerText");
     if(el && document.activeElement !== el){    // 編集中でなければ反映
-      el.textContent = t;
+      el.value = t;
       try{ localStorage.setItem("cal_banner", t); }catch(e){}
-      setBannerH();
+      fitBanner();
     }
   }catch(e){}
 }
