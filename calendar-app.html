@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="カレンダー">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiMyMzI2MkEiLz48cmVjdCB4PSIxMyIgeT0iMTIiIHdpZHRoPSIzOCIgaGVpZ2h0PSI0MCIgcng9IjYiIGZpbGw9IiNGN0Y3RjQiLz48bGluZSB4MT0iOSIgeTE9IjM0IiB4Mj0iNTUiIHkyPSIzNCIgc3Ryb2tlPSIjQjQ0NzJGIiBzdHJva2Utd2lkdGg9IjYiLz48Y2lyY2xlIGN4PSIxMiIgY3k9IjM0IiByPSI2IiBmaWxsPSIjQjQ0NzJGIi8+PC9zdmc+">
 <title>カレンダー</title>
 <style>
   :root{
@@ -335,7 +336,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b16";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b17";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -959,10 +960,7 @@ function installManifest(){
   link.rel = "manifest"; link.href = url;
   document.head.appendChild(link);
 
-  // タブ／ブックマークのファビコン（同じ絵）
-  const fav = document.createElement("link");
-  fav.rel = "icon"; fav.type = "image/svg+xml"; fav.href = icon;
-  document.head.appendChild(fav);
+  // ファビコン(タブ/ブックマーク)は <head> に静的に置いてある（JS注入だと出たり出なかったりするため）
 
   // iOS 用のアイコンも同じ絵で（ホーム画面追加時）
   const al = document.createElement("link");
