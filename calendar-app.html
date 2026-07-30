@@ -176,7 +176,8 @@
     font-size:10px;color:var(--shu);font-weight:600}
   /* 現在時刻へ戻る浮動ボタン（赤線が画面外のときだけ出る） */
   .nowbtn{
-    position:fixed;right:16px;bottom:16px;z-index:30;
+    /* 本文(最大640px)の右側に寄せる。狭い画面では右下=親指の届く位置に */
+    position:fixed;left:min(590px, calc(100vw - 74px));right:auto;bottom:20px;z-index:30;
     width:54px;height:54px;border-radius:50%;
     background:var(--ink);color:var(--paper);border:none;
     font-family:var(--gothic);font-size:15px;letter-spacing:.05em;
@@ -321,7 +322,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b10";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b11";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -459,6 +460,7 @@ function renderView(){
   viewEl.querySelectorAll(".tl-ev,.ad").forEach(el=>{
     el.addEventListener("click",()=>openSheet(el.dataset.id));
   });
+  updateNowBtn();                        // まず確実に表示（rAF抑制時の保険）
   requestAnimationFrame(()=>{
     if(pendingScrollNow){ pendingScrollNow=false; scrollToNow(false); }
     updateNowBtn();
@@ -833,14 +835,12 @@ function scrollToNow(smooth){
 }
 function updateNowBtn(){
   const btn = document.getElementById("nowBtn");
-  if(!btn) return;
-  const el = document.querySelector(".tl-now");
-  if(!el){ btn.classList.remove("show"); return; }   // 今日が範囲外なら赤線が無い
-  const r = el.getBoundingClientRect();
-  const visible = r.top > 64 && r.top < window.innerHeight - 24;
-  btn.classList.toggle("show", !visible);            // 見えていない時だけ出す
+  if(btn) btn.classList.add("show");                 // 常に表示（押しても消えない）
 }
-document.getElementById("nowBtn").addEventListener("click", ()=>scrollToNow(true));
+document.getElementById("nowBtn").addEventListener("click", ()=>{
+  if(document.querySelector(".tl-now")) scrollToNow(true);          // 赤線があればそこへ
+  else { anchor = new Date(); pendingScrollNow = true; refresh(); } // 範囲外なら今日へ飛んでから
+});
 let nowTick = false;
 window.addEventListener("scroll", ()=>{
   if(nowTick) return; nowTick = true;
