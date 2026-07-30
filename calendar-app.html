@@ -305,7 +305,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b7";   // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b8";   // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -473,7 +473,7 @@ function evBtnHtml(o){
   const cls = ["tl-ev", short?"short":"", o.e.routine?"routine":"", o.e.done?"done":""].join(" ");
   const border = o.e.done ? "var(--gray)" : cal.color;
   // 済でなければカレンダー色の塗りで濃くする（背景に埋もれないように）
-  const bg = o.e.done ? "" : `background:color-mix(in srgb, ${cal.color} 30%, #fff);`;
+  const bg = o.e.done ? "" : `background:color-mix(in srgb, ${cal.color} 42%, #fff);`;
   const label = o.e.time + (o.e.end?("–"+o.e.end):"");
   return `<button class="${cls}" data-id="${esc(o.e.id)}"
     style="top:${top}px;height:${hgt}px;left:calc(${left}% + 1px);width:calc(${w}% - 2px);border-color:${border};${bg}">
@@ -485,7 +485,7 @@ function allDayBtns(d, vis){
     const cal = calById(e.calId) || {color:"var(--ink)"};
     const cls = ["ad", e.routine?"routine":"", e.done?"done":""].join(" ");
     const border = e.done ? "var(--gray)" : cal.color;
-    const bg = e.done ? "" : `background:color-mix(in srgb, ${cal.color} 30%, #fff);`;
+    const bg = e.done ? "" : `background:color-mix(in srgb, ${cal.color} 42%, #fff);`;
     return `<button class="${cls}" data-id="${esc(e.id)}" style="border-color:${border};${bg}">${esc(e.title)}</button>`;
   }).join("");
 }
@@ -575,17 +575,23 @@ function openSheet(id){
   const cal = calById(e.calId);
   const when = md(e.date)+" ("+WK[wdOf(e.date)]+") "+(e.allDay?"終日":(e.time+(e.end?("–"+e.end):"")));
   document.getElementById("sheetTitle").textContent = e.title;
+  const writable = !cal || cal.writable !== false;   // モック/不明は許可、reader等は不可
   document.getElementById("sheetMeta").textContent =
     when + " · " + (cal?cal.name:"") + (e.routine?" · 繰り返し":" · 単発")
-    + (e.done && e.doneAt ? " · 済 "+e.doneAt : "");
+    + (e.done && e.doneAt ? " · 済 "+e.doneAt : "")
+    + (writable ? "" : " · 閲覧のみ（Google側で済にできません）");
   const acts = document.getElementById("sheetActions");
   // 予定の作成・削除・時間変更などの本格的な編集は Google 側に任せる（このボタンで飛ぶ）
   const openBtn = e.htmlLink
     ? `<a class="btn" id="act-open" href="${esc(e.htmlLink)}" target="_blank" rel="noopener">Googleで開く</a>`
     : "";
-  acts.innerHTML = (e.done
-    ? `<button class="btn" id="act-undo">済を取り消す</button>`
-    : `<button class="btn primary" id="act-done">済にする</button>`) + openBtn;
+  // 書き込み権限のあるカレンダーだけ「済」を出す。閲覧のみは無効表示にする
+  const doneBtn = !writable
+    ? `<button class="btn" disabled title="このカレンダーは閲覧のみです">済にできません</button>`
+    : (e.done
+        ? `<button class="btn" id="act-undo">済を取り消す</button>`
+        : `<button class="btn primary" id="act-done">済にする</button>`);
+  acts.innerHTML = doneBtn + openBtn;
   acts.querySelector("#act-done") && acts.querySelector("#act-done").addEventListener("click",()=>markDone(id,true));
   acts.querySelector("#act-undo") && acts.querySelector("#act-undo").addEventListener("click",()=>markDone(id,false));
   document.getElementById("sheet").classList.add("on");
@@ -665,7 +671,10 @@ async function loadLive(){
       id: c.id,
       name: c.summaryOverride || c.summary,
       color: c.backgroundColor || "#888",
-      off: c.selected===false
+      off: c.selected===false,
+      // 書き込み権限があるカレンダーだけ「済」を許可する（閲覧のみ/共有は不可）
+      writable: c.accessRole === "owner" || c.accessRole === "writer",
+      accessRole: c.accessRole || ""
     }));
     // 表示範囲だけ取得する
     const { timeMin, timeMax } = fetchRange();
