@@ -189,7 +189,7 @@
   .tl-ev.done::after{content:"済";position:absolute;top:1px;right:3px;font-family:var(--mincho);
     font-size:10px;color:var(--shu);font-weight:600}
   /* 浮動ボタン（左下に縦積み：上=先頭へ / 下=現在時刻へ） */
-  .fabs{position:fixed;left:16px;bottom:20px;z-index:30;display:none;flex-direction:column;gap:10px}
+  .fabs{position:fixed;right:16px;left:auto;bottom:20px;z-index:30;display:none;flex-direction:column;gap:10px}
   .fabs.show{display:flex}
   .fab{
     width:52px;height:52px;border-radius:50%;cursor:pointer;
@@ -354,7 +354,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b21";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b22";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
