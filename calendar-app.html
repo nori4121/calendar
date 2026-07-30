@@ -2,7 +2,12 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F7F7F4">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="カレンダー">
 <title>カレンダー</title>
 <style>
   :root{
@@ -43,7 +48,8 @@
   .btn{
     font-family:var(--gothic);font-size:13px;letter-spacing:.02em;
     background:transparent;border:1px solid var(--ink);color:var(--ink);
-    padding:8px 16px;cursor:pointer;transition:background .12s,color .12s
+    padding:8px 16px;cursor:pointer;transition:background .12s,color .12s;
+    display:inline-block;text-decoration:none;text-align:center
   }
   .btn:hover{background:var(--ink);color:var(--paper)}
   .btn:focus-visible{outline:2px solid var(--shu);outline-offset:2px}
@@ -129,6 +135,7 @@
   .modes button:focus-visible{outline:2px solid var(--shu);outline-offset:2px}
 
   /* ---- timeline (24h grid, stacked days) ---- */
+  .scrollwrap{max-width:640px}   /* 一枚ものは横に間延びさせず、読みやすい幅に収める */
   .tl-day{border-top:1px solid var(--grid-strong);padding-top:10px;margin-bottom:10px}
   .tl-daylabel{display:flex;align-items:center;gap:9px;font-family:var(--mono);margin:0 0 8px;padding-left:2px}
   .tl-daylabel .dn{font-size:19px;line-height:1}
@@ -150,9 +157,9 @@
   .tl-hour span{position:absolute;left:-54px;top:-7px;width:48px;text-align:right;
     font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
   .tl-ev{
-    position:absolute;overflow:hidden;border-left:4px solid var(--ink);background:#fff;
-    font-size:12px;line-height:1.3;padding:3px 7px;cursor:pointer;border-radius:3px;
-    box-shadow:0 1px 2px -1px rgba(0,0,0,.22);text-align:left;font-family:inherit;color:var(--ink)
+    position:absolute;overflow:hidden;border-left:5px solid var(--ink);background:#fff;
+    font-size:12px;line-height:1.28;padding:2px 8px;cursor:pointer;border-radius:3px;
+    box-shadow:0 1px 2px -1px rgba(0,0,0,.25);text-align:left;font-family:inherit;color:var(--ink)
   }
   .tl-ev:hover{z-index:6;box-shadow:0 2px 7px -1px rgba(0,0,0,.3)}
   .tl-ev:focus-visible{outline:2px solid var(--shu);outline-offset:1px;z-index:6}
@@ -298,7 +305,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b4";   // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b7";   // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -312,6 +319,7 @@ let anchor = new Date();                // 表示の基準日（既定は今日�
 let hideRoutine = false, hideDone = false;
 let mode = "scroll";                    // "scroll"(一枚もの) | "day3"(3日)
 const PXH = 60;                         // 時間軸: 1時間の高さ(px)
+const MINEV_H = 22;                     // 予定ブロックの最小の高さ(px)。これ未満は潰さない
 
 /* ============================================================
    日付ユーティリティ（JST基準の "YYYY-MM-DD"）
@@ -329,7 +337,7 @@ function mondayOf(d){
 function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
 function md(s){ const [,m,dd]=s.split("-"); return (+m)+"/"+(+dd); }
 function wdOf(s){ return parseYmd(s).getDay(); }
-const TODAY = ymd(new Date());
+let TODAY = ymd(new Date());   // 日付をまたいだら tickNow() が更新する
 
 /* 表示する日付の並び（モード別） */
 function daysToShow(){
@@ -444,11 +452,14 @@ function nowMinutes(){ const d=new Date(); return d.getHours()*60+d.getMinutes()
 
 /* その日の時刻付き予定を、重なりを列に振り分けて返す */
 function timedOf(d, vis){
+  const minMin = MINEV_H / PXH * 60;      // 最小高さぶんを「分」に換算（見た目の占有量）
   const timed = vis.filter(e=>e.date===d && !e.allDay && e.time).map(e=>{
     const s = toMin(e.time);
     let en = e.end ? toMin(e.end) : s+30;
     if(en <= s) en = Math.min(s+30, 24*60);
-    return { e, s, en };
+    // enEff = 実際の終了か「最小高さ相当の終了」の遅い方。これで見た目が重なる分も分割対象にする
+    const enEff = Math.max(en, s + minMin);
+    return { e, s, en, enEff };
   });
   packColumns(timed);
   return timed;
@@ -456,13 +467,13 @@ function timedOf(d, vis){
 /* 1件の予定ブロック（絶対配置）。列は position:relative な入れ物側で受ける */
 function evBtnHtml(o){
   const cal = calById(o.e.calId) || {color:"var(--ink)"};
-  const top = (o.s/60)*PXH, hgt = Math.max((o.en-o.s)/60*PXH, 20);
+  const top = (o.s/60)*PXH + 1, hgt = Math.max((o.en-o.s)/60*PXH - 2, MINEV_H);   // 上下1pxずつ空けて重なりを緩和
   const w = 100/o.ncol, left = o.col*w;
   const short = hgt < 40;                 // 背が低い枠は1行にまとめる
   const cls = ["tl-ev", short?"short":"", o.e.routine?"routine":"", o.e.done?"done":""].join(" ");
   const border = o.e.done ? "var(--gray)" : cal.color;
-  // 済でなければカレンダー色の淡い塗りで濃くする（背景に埋もれないように）
-  const bg = o.e.done ? "" : `background:color-mix(in srgb, ${cal.color} 20%, #fff);`;
+  // 済でなければカレンダー色の塗りで濃くする（背景に埋もれないように）
+  const bg = o.e.done ? "" : `background:color-mix(in srgb, ${cal.color} 30%, #fff);`;
   const label = o.e.time + (o.e.end?("–"+o.e.end):"");
   return `<button class="${cls}" data-id="${esc(o.e.id)}"
     style="top:${top}px;height:${hgt}px;left:calc(${left}% + 1px);width:calc(${w}% - 2px);border-color:${border};${bg}">
@@ -474,7 +485,7 @@ function allDayBtns(d, vis){
     const cal = calById(e.calId) || {color:"var(--ink)"};
     const cls = ["ad", e.routine?"routine":"", e.done?"done":""].join(" ");
     const border = e.done ? "var(--gray)" : cal.color;
-    const bg = e.done ? "" : `background:color-mix(in srgb, ${cal.color} 20%, #fff);`;
+    const bg = e.done ? "" : `background:color-mix(in srgb, ${cal.color} 30%, #fff);`;
     return `<button class="${cls}" data-id="${esc(e.id)}" style="border-color:${border};${bg}">${esc(e.title)}</button>`;
   }).join("");
 }
@@ -485,7 +496,7 @@ const hoursCol = () => Array.from({length:25}, (_,h)=>
 function renderScroll(days){
   const vis = visibleEvents();
   const nm = nowMinutes();
-  return days.map(d=>{
+  return `<div class="scrollwrap">` + days.map(d=>{
     const k = wdOf(d);
     const evs = timedOf(d,vis).map(evBtnHtml).join("");
     const nowLine = (d===TODAY) ? `<div class="tl-now" style="top:${(nm/60)*PXH}px"></div>` : "";
@@ -496,7 +507,7 @@ function renderScroll(days){
       ${ad ? `<div class="tl-allday">${ad}</div>` : ""}
       <div class="tl-grid" style="height:${24*PXH}px">${hoursCol()}${nowLine}${evs}</div>
     </section>`;
-  }).join("");
+  }).join("") + `</div>`;
 }
 
 /* ---- 3日ビュー: 3日を横に並べ、縦を時間軸に ---- */
@@ -527,15 +538,16 @@ function renderDay3(days){
 
 /* 重なる予定を列に割り当てる（col: 列番号, ncol: そのかたまりの列数） */
 function packColumns(items){
-  items.sort((a,b)=> a.s-b.s || a.en-b.en);
+  // 見た目の占有量 enEff で「重なるかどうか」を判定して列に振り分ける
+  items.sort((a,b)=> a.s-b.s || a.enEff-b.enEff);
   let i=0;
   while(i<items.length){
-    const cluster=[items[i]]; let maxEnd=items[i].en, j=i+1;
-    while(j<items.length && items[j].s < maxEnd){ cluster.push(items[j]); maxEnd=Math.max(maxEnd,items[j].en); j++; }
+    const cluster=[items[i]]; let maxEnd=items[i].enEff, j=i+1;
+    while(j<items.length && items[j].s < maxEnd){ cluster.push(items[j]); maxEnd=Math.max(maxEnd,items[j].enEff); j++; }
     const colEnds=[];
     for(const o of cluster){
       let c = colEnds.findIndex(end=> end<=o.s);
-      if(c===-1){ c=colEnds.length; colEnds.push(o.en); } else colEnds[c]=o.en;
+      if(c===-1){ c=colEnds.length; colEnds.push(o.enEff); } else colEnds[c]=o.enEff;
       o.col=c;
     }
     for(const o of cluster) o.ncol=colEnds.length;
@@ -567,9 +579,13 @@ function openSheet(id){
     when + " · " + (cal?cal.name:"") + (e.routine?" · 繰り返し":" · 単発")
     + (e.done && e.doneAt ? " · 済 "+e.doneAt : "");
   const acts = document.getElementById("sheetActions");
-  acts.innerHTML = e.done
+  // 予定の作成・削除・時間変更などの本格的な編集は Google 側に任せる（このボタンで飛ぶ）
+  const openBtn = e.htmlLink
+    ? `<a class="btn" id="act-open" href="${esc(e.htmlLink)}" target="_blank" rel="noopener">Googleで開く</a>`
+    : "";
+  acts.innerHTML = (e.done
     ? `<button class="btn" id="act-undo">済を取り消す</button>`
-    : `<button class="btn primary" id="act-done">済にする</button>`;
+    : `<button class="btn primary" id="act-done">済にする</button>`) + openBtn;
   acts.querySelector("#act-done") && acts.querySelector("#act-done").addEventListener("click",()=>markDone(id,true));
   acts.querySelector("#act-undo") && acts.querySelector("#act-undo").addEventListener("click",()=>markDone(id,false));
   document.getElementById("sheet").classList.add("on");
@@ -692,7 +708,8 @@ function normalize(it, calId){
     done: priv.done === "true",
     doneAt: priv.doneAt || "",
     prevColorId: priv.prevColorId || it.colorId || "",
-    colorId: it.colorId || ""
+    colorId: it.colorId || "",
+    htmlLink: it.htmlLink || ""        // Googleカレンダーで開くためのリンク
   };
 }
 
@@ -761,9 +778,59 @@ document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeSheet(); });
 function refresh(){ if(LIVE) loadLive(); else renderView(); }
 
 /* ============================================================
+   現在時刻ラインの自動更新（再読み込み不要で赤線が動く）
+   ============================================================ */
+function tickNow(){
+  const today = ymd(new Date());
+  if(today !== TODAY){ TODAY = today; renderView(); return; }   // 日付をまたいだら描き直す
+  const nm = nowMinutes();
+  document.querySelectorAll(".tl-now").forEach(el=> el.style.top = ((nm/60)*PXH) + "px");
+}
+setInterval(tickNow, 30000);   // 30秒ごとに位置を更新
+
+/* ============================================================
+   PWA: ホーム画面に追加すると全画面＆アイコンで起動できるように
+   （manifest を実行時に生成して埋め込む。別ファイル不要・置き場所に依存しない）
+   ============================================================ */
+function installManifest(){
+  const svg =
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'>"
+    + "<rect width='512' height='512' rx='96' fill='#23262A'/>"
+    + "<rect x='112' y='120' width='288' height='280' rx='22' fill='#F7F7F4'/>"
+    + "<rect x='112' y='120' width='288' height='58' rx='22' fill='#B4472F'/>"
+    + "<g stroke='#D2D5CD' stroke-width='6'>"
+    + "<line x1='140' y1='250' x2='372' y2='250'/><line x1='140' y1='312' x2='372' y2='312'/><line x1='140' y1='374' x2='372' y2='374'/></g>"
+    + "<line x1='112' y1='292' x2='400' y2='292' stroke='#B4472F' stroke-width='9'/>"
+    + "<circle cx='116' cy='292' r='13' fill='#B4472F'/></svg>";
+  const icon = "data:image/svg+xml," + encodeURIComponent(svg);
+  const dir = location.origin + location.pathname.replace(/[^/]*$/, "");
+  const manifest = {
+    name: "カレンダー", short_name: "カレンダー",
+    start_url: location.origin + location.pathname,
+    scope: dir,
+    display: "standalone",
+    background_color: "#F7F7F4", theme_color: "#F7F7F4",
+    icons: [
+      { src: icon, sizes: "any",     type: "image/svg+xml", purpose: "any" },
+      { src: icon, sizes: "512x512", type: "image/svg+xml", purpose: "maskable" }
+    ]
+  };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(manifest)], {type:"application/manifest+json"}));
+  const link = document.createElement("link");
+  link.rel = "manifest"; link.href = url;
+  document.head.appendChild(link);
+
+  // iOS 用のアイコンも同じ絵で（ホーム画面追加時）
+  const al = document.createElement("link");
+  al.rel = "apple-touch-icon"; al.href = icon;
+  document.head.appendChild(al);
+}
+
+/* ============================================================
    起動
    ============================================================ */
 function boot(){
+  installManifest();
   calendars = mockCalendars();
   events = mockEvents();
   setStatus(false);
