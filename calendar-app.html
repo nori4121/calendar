@@ -174,21 +174,22 @@
   .tl-ev.done .ttl{text-decoration:line-through;text-decoration-thickness:1px;text-decoration-color:var(--gray)}
   .tl-ev.done::after{content:"済";position:absolute;top:1px;right:3px;font-family:var(--mincho);
     font-size:10px;color:var(--shu);font-weight:600}
-  /* 現在時刻へ戻る浮動ボタン（赤線が画面外のときだけ出る） */
-  .nowbtn{
-    /* 本文(最大640px)の右側に寄せる。狭い画面では右下=親指の届く位置に */
-    position:fixed;left:min(590px, calc(100vw - 74px));right:auto;bottom:20px;z-index:30;
-    width:54px;height:54px;border-radius:50%;
-    background:var(--ink);color:var(--paper);border:none;
+  /* 浮動ボタン（左下に縦積み：上=先頭へ / 下=現在時刻へ） */
+  .fabs{position:fixed;left:16px;bottom:20px;z-index:30;display:none;flex-direction:column;gap:10px}
+  .fabs.show{display:flex}
+  .fab{
+    width:52px;height:52px;border-radius:50%;cursor:pointer;
     font-family:var(--gothic);font-size:15px;letter-spacing:.05em;
-    box-shadow:0 4px 14px -3px rgba(0,0,0,.5);cursor:pointer;
-    display:none;align-items:center;justify-content:center;gap:4px
+    display:flex;align-items:center;justify-content:center;gap:4px;
+    box-shadow:0 4px 14px -3px rgba(0,0,0,.5)
   }
-  .nowbtn.show{display:flex}
+  .fab:focus-visible{outline:2px solid var(--shu);outline-offset:2px}
+  .nowbtn{background:var(--ink);color:var(--paper);border:none}
   .nowbtn::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--shu)}
   .nowbtn:hover{background:var(--shu)}
   .nowbtn:hover::before{background:var(--paper)}
-  .nowbtn:focus-visible{outline:2px solid var(--shu);outline-offset:2px}
+  .topbtn{background:var(--paper);color:var(--ink);border:1px solid var(--ink);font-size:20px;line-height:1}
+  .topbtn:hover{background:var(--ink);color:var(--paper)}
 
   .tl-now{position:absolute;left:0;right:0;height:2px;background:var(--shu);z-index:7;pointer-events:none}
   .tl-now::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--shu)}
@@ -302,7 +303,10 @@
 </div>
 
 <div id="toast"></div>
-<button id="nowBtn" class="nowbtn" title="現在時刻へ戻る" aria-label="現在時刻へ戻る">今</button>
+<div class="fabs" id="fabs">
+  <button id="topBtn" class="fab topbtn" title="先頭へ戻る" aria-label="先頭へ戻る">↑</button>
+  <button id="nowBtn" class="fab nowbtn" title="現在時刻へ戻る" aria-label="現在時刻へ戻る">今</button>
+</div>
 
 <!-- Google Identity Services -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -322,7 +326,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b11";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b12";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -834,12 +838,15 @@ function scrollToNow(smooth){
   window.scrollTo({ top: Math.max(0, target), behavior: smooth ? "smooth" : "auto" });
 }
 function updateNowBtn(){
-  const btn = document.getElementById("nowBtn");
-  if(btn) btn.classList.add("show");                 // 常に表示（押しても消えない）
+  const fabs = document.getElementById("fabs");
+  if(fabs) fabs.classList.add("show");               // 常に表示（押しても消えない）
 }
 document.getElementById("nowBtn").addEventListener("click", ()=>{
   if(document.querySelector(".tl-now")) scrollToNow(true);          // 赤線があればそこへ
   else { anchor = new Date(); pendingScrollNow = true; refresh(); } // 範囲外なら今日へ飛んでから
+});
+document.getElementById("topBtn").addEventListener("click", ()=>{
+  window.scrollTo({ top:0, behavior:"smooth" });                    // 先頭へ戻る
 });
 let nowTick = false;
 window.addEventListener("scroll", ()=>{
