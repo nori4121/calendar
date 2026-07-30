@@ -149,7 +149,7 @@
     border-left:2.5px solid var(--ink);border-top:none;cursor:pointer;max-width:100%;
     font-family:inherit;text-align:left
   }
-  .ad.routine{opacity:.6;border-left-style:dotted}
+  .ad.routine{border-left-style:dotted}
   .ad.done{border-left-color:var(--gray)!important;background:#F1F1EE;color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--gray)}
   .tl-grid{position:relative;margin-left:56px;border-left:1px solid var(--grid-strong)}
   .tl-hour{position:absolute;left:0;right:0;border-top:1px solid var(--grid)}
@@ -169,7 +169,7 @@
   .tl-ev.short{display:flex;align-items:baseline;gap:5px;white-space:nowrap}
   .tl-ev.short .t{display:inline;flex:0 0 auto}
   .tl-ev.short .ttl{min-width:0;overflow:hidden;text-overflow:ellipsis}
-  .tl-ev.routine{opacity:.72;border-left-style:dotted}
+  .tl-ev.routine{border-left-style:dotted}   /* ルーティンは点線枠で区別（opacityは使わない＝文字が曇らない） */
   .tl-ev.done{border-left-color:var(--gray)!important;background:#F1F1EE!important;color:var(--ink-faint)}
   .tl-ev.done .ttl{text-decoration:line-through;text-decoration-thickness:1px;text-decoration-color:var(--gray)}
   .tl-ev.done::after{content:"済";position:absolute;top:1px;right:3px;font-family:var(--mincho);
@@ -305,7 +305,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b8";   // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b9";   // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
