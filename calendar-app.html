@@ -195,12 +195,13 @@
   .tl-now::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--shu)}
   /* 赤線に添える日付ラベル（時刻の目盛りのあたりに赤文字2段） */
   .tl-nowlab{
-    position:absolute;transform:translateY(-50%);z-index:8;pointer-events:none;
-    font-family:var(--mono);font-size:10px;line-height:1.15;font-weight:600;
-    color:var(--shu);text-align:right
+    position:absolute;transform:translateY(-50%);z-index:9;pointer-events:none;
+    font-family:var(--mono);font-size:10px;line-height:1.2;font-weight:600;
+    color:var(--shu);text-align:center;
+    background:#fff;border:1px solid var(--shu);border-radius:3px;padding:1px 2px   /* 白背景で前面。裏の「◯時」を隠してよい */
   }
-  .tl-grid > .tl-nowlab{left:-54px;width:48px}      /* スクロール：時刻の目盛り位置 */
-  .d3gutter > .tl-nowlab{right:5px}                  /* 3日：左の時刻ガター */
+  .tl-grid > .tl-nowlab{left:-58px;width:50px}      /* スクロール：時刻の目盛り位置 */
+  .d3gutter > .tl-nowlab{right:2px}                  /* 3日：左の時刻ガター */
 
   /* ---- 3-day view (3 columns, shared time axis) ---- */
   .d3{--gut:52px}
@@ -334,7 +335,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b13";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b15";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -484,10 +485,10 @@ function renderView(){
    ============================================================ */
 function toMin(hm){ const [h,m]=hm.split(":").map(Number); return h*60+(m||0); }
 function nowMinutes(){ const d=new Date(); return d.getHours()*60+d.getMinutes(); }
-// 赤線に添える日付ラベル（2段：日付 / AM・PM）
+// 赤線に添えるラベル（2段：日付 / 実時刻 HH:MM）
 function nowLabel(){
   const d = new Date();
-  return (d.getMonth()+1) + "/" + d.getDate() + "<br>" + (d.getHours() < 12 ? "AM" : "PM");
+  return (d.getMonth()+1) + "/" + d.getDate() + "<br>" + pad(d.getHours()) + ":" + pad(d.getMinutes());
 }
 
 /* その日の時刻付き予定を、重なりを列に振り分けて返す */
@@ -674,11 +675,15 @@ function initTokenClient(){
     client_id: CONFIG.CLIENT_ID,
     scope: CONFIG.SCOPE,
     callback: (resp)=>{
-      if(resp.error){ toast("認証に失敗しました: "+resp.error); return; }
+      if(resp.error){
+        if(!silentAttempt) toast("認証に失敗しました: "+resp.error);   // 裏での取り直し失敗は黙って諦める
+        silentAttempt = false; return;
+      }
+      silentAttempt = false;
       TOKEN = resp.access_token; LIVE = true;
-      setStatus(true);
-      document.getElementById("reload").disabled = false;
-      document.getElementById("connect").textContent = "再接続";
+      saveToken(resp.access_token, resp.expires_in);
+      try{ localStorage.setItem("cal_seen","1"); }catch(e){}
+      markConnected(true);
       loadLive();
     }
   });
@@ -695,6 +700,45 @@ function connect(){
     return;
   }
   tokenClient.requestAccessToken({ prompt: TOKEN ? "" : "consent" });
+}
+
+/* ---- 自動再接続：トークンを保存して次回は黙って再開する ---- */
+const TOK_KEY = "cal_token_v1";
+let silentAttempt = false;              // 裏で静かに取り直し中か（エラートーストを抑えるため）
+function saveToken(token, expiresInSec){
+  try{ localStorage.setItem(TOK_KEY, JSON.stringify({ token, expiresAt: Date.now() + (expiresInSec||3600)*1000 })); }catch(e){}
+}
+function loadStoredToken(){
+  try{ const o = JSON.parse(localStorage.getItem(TOK_KEY)||"null"); return (o && o.token && o.expiresAt) ? o : null; }catch(e){ return null; }
+}
+function clearToken(){ try{ localStorage.removeItem(TOK_KEY); }catch(e){} }
+function markConnected(live){
+  setStatus(live);
+  document.getElementById("reload").disabled = !live;
+  document.getElementById("connect").textContent = live ? "再接続" : "Googleに接続";
+}
+function whenGisReady(cb, tries){
+  tries = tries || 0;
+  if(window.google && google.accounts && google.accounts.oauth2){ cb(); return; }
+  if(tries > 40) return;                // 最大約8秒待つ
+  setTimeout(()=>whenGisReady(cb, tries+1), 200);
+}
+function silentReconnect(){
+  if(localStorage.getItem("cal_seen") !== "1") return;   // 一度もつないでいなければ何もしない
+  whenGisReady(()=>{
+    if(tokenClient || initTokenClient()){ silentAttempt = true; tokenClient.requestAccessToken({ prompt: "" }); }
+  });
+}
+function autoReconnect(){
+  if(!CONFIG.CLIENT_ID) return;
+  const t = loadStoredToken();
+  if(t && t.expiresAt > Date.now() + 15000){    // まだ有効 → Google操作なしで即再開
+    TOKEN = t.token; LIVE = true; markConnected(true);
+    loadLive();
+    return;
+  }
+  clearToken();
+  silentReconnect();                            // 期限切れ/無し → 静かに取り直しを試す（無理ならモックのまま）
 }
 
 async function api(path, opts){
@@ -739,7 +783,15 @@ async function loadLive(){
     renderCals(); renderView();
     toast("読み込み完了（"+events.length+"件）");
   }catch(err){
-    toast("読み込みに失敗しました: "+(err.message||err));
+    const msg = String(err.message||err);
+    if(/^401/.test(msg)){                 // トークン失効 → モックへ戻し、静かに取り直しを試す
+      clearToken(); TOKEN=null; LIVE=false; markConnected(false);
+      calendars = mockCalendars(); events = mockEvents(); renderCals(); renderView();
+      toast("接続の期限が切れました。取り直します…");
+      silentReconnect();
+      return;
+    }
+    toast("読み込みに失敗しました: "+msg);
   }
 }
 
@@ -924,6 +976,7 @@ function boot(){
   renderCals();
   pendingScrollNow = true;                // 起動時は現在時刻付近から始める
   renderView();
+  autoReconnect();                        // 前回つないでいれば黙って再開を試みる
 }
 boot();
 </script>
