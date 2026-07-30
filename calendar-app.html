@@ -660,28 +660,32 @@ function normalize(it, calId){
 }
 
 async function patchDone(e, done){
+  // Google の PATCH は「未指定/null のフィールドは変更しない」ため、colorId を
+  // null で送っても既定色に戻せない。そこで「取得→編集→PUT(全体更新)」で行う。
+  // PUT は送らなかったフィールドがクリアされるので、colorId を削除すれば既定色に戻る。
   const path = "/calendars/"+encodeURIComponent(e.calId)+"/events/"+encodeURIComponent(e.gid);
-  let body;
+  const ev = await api(path);                                  // イベント全体を取得
+  ev.extendedProperties = ev.extendedProperties || {};
+  ev.extendedProperties.private = ev.extendedProperties.private || {};
+  const priv = ev.extendedProperties.private;
+
   if(done){
-    body = {
-      colorId: CONFIG.GRAY_COLOR_ID,
-      extendedProperties:{ private:{
-        done:"true",
-        doneAt:new Date().toISOString(),
-        prevColorId: e.colorId || ""     // 取り消し時に色を戻せるよう控える
-      }}
-    };
+    priv.prevColorId = ev.colorId || "";     // 現在の色を控える（既定色なら""）
+    priv.done   = "true";
+    priv.doneAt = new Date().toISOString();
+    ev.colorId  = CONFIG.GRAY_COLOR_ID;      // 灰色にする
   }else{
-    body = {
-      colorId: e.prevColorId || null,     // 元の色へ（null で既定色に戻る）
-      extendedProperties:{ private:{ done:null, doneAt:null } }
-    };
+    const prev = priv.prevColorId || "";
+    if(prev) ev.colorId = prev;              // 元が個別色 → その色へ戻す
+    else     delete ev.colorId;              // 元が既定色 → colorId を消して既定へ
+    delete priv.done; delete priv.doneAt; delete priv.prevColorId;
   }
-  const updated = await api(path, { method:"PATCH", body: JSON.stringify(body) });
+
+  const updated = await api(path, { method:"PUT", body: JSON.stringify(ev) });
   if(updated){
-    const priv = (updated.extendedProperties && updated.extendedProperties.private) || {};
+    const p = (updated.extendedProperties && updated.extendedProperties.private) || {};
     e.colorId = updated.colorId || "";
-    e.prevColorId = priv.prevColorId || e.prevColorId;
+    e.prevColorId = p.prevColorId || "";
   }
   return updated;
 }
