@@ -174,6 +174,21 @@
   .tl-ev.done .ttl{text-decoration:line-through;text-decoration-thickness:1px;text-decoration-color:var(--gray)}
   .tl-ev.done::after{content:"済";position:absolute;top:1px;right:3px;font-family:var(--mincho);
     font-size:10px;color:var(--shu);font-weight:600}
+  /* 現在時刻へ戻る浮動ボタン（赤線が画面外のときだけ出る） */
+  .nowbtn{
+    position:fixed;right:16px;bottom:16px;z-index:30;
+    width:54px;height:54px;border-radius:50%;
+    background:var(--ink);color:var(--paper);border:none;
+    font-family:var(--gothic);font-size:15px;letter-spacing:.05em;
+    box-shadow:0 4px 14px -3px rgba(0,0,0,.5);cursor:pointer;
+    display:none;align-items:center;justify-content:center;gap:4px
+  }
+  .nowbtn.show{display:flex}
+  .nowbtn::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--shu)}
+  .nowbtn:hover{background:var(--shu)}
+  .nowbtn:hover::before{background:var(--paper)}
+  .nowbtn:focus-visible{outline:2px solid var(--shu);outline-offset:2px}
+
   .tl-now{position:absolute;left:0;right:0;height:2px;background:var(--shu);z-index:7;pointer-events:none}
   .tl-now::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--shu)}
 
@@ -286,6 +301,7 @@
 </div>
 
 <div id="toast"></div>
+<button id="nowBtn" class="nowbtn" title="現在時刻へ戻る" aria-label="現在時刻へ戻る">今</button>
 
 <!-- Google Identity Services -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -305,7 +321,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b9";   // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b10";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -318,6 +334,7 @@ let events = [];                  // 正規化済みイベント
 let anchor = new Date();                // 表示の基準日（既定は今日）
 let hideRoutine = false, hideDone = false;
 let mode = "scroll";                    // "scroll"(一枚もの) | "day3"(3日)
+let pendingScrollNow = false;           // 次の描画後に現在時刻へ自動スクロールするか
 const PXH = 60;                         // 時間軸: 1時間の高さ(px)
 const MINEV_H = 22;                     // 予定ブロックの最小の高さ(px)。これ未満は潰さない
 
@@ -441,6 +458,10 @@ function renderView(){
                      || `<p class="empty-note">表示できる予定がありません。</p>`;
   viewEl.querySelectorAll(".tl-ev,.ad").forEach(el=>{
     el.addEventListener("click",()=>openSheet(el.dataset.id));
+  });
+  requestAnimationFrame(()=>{
+    if(pendingScrollNow){ pendingScrollNow=false; scrollToNow(false); }
+    updateNowBtn();
   });
 }
 
@@ -690,6 +711,7 @@ async function loadLive(){
       for(const it of (data.items||[])) all.push(normalize(it, c.id));
     }
     events = all;
+    pendingScrollNow = true;              // 接続直後は現在時刻へ寄せる
     renderCals(); renderView();
     toast("読み込み完了（"+events.length+"件）");
   }catch(err){
@@ -772,6 +794,7 @@ document.querySelectorAll(".modes button").forEach(b=>{
   b.addEventListener("click",()=>{
     mode = b.dataset.mode;
     document.querySelectorAll(".modes button").forEach(x=>x.setAttribute("aria-pressed", String(x===b)));
+    pendingScrollNow = true;              // ビュー切替時も現在時刻へ寄せる
     renderView();
   });
 });
@@ -779,7 +802,7 @@ document.getElementById("connect").addEventListener("click", connect);
 document.getElementById("reload").addEventListener("click", ()=>{ if(LIVE) loadLive(); });
 document.getElementById("prev").addEventListener("click", ()=>{ anchor = addDays(anchor, mode==="day3" ? -1 : -7*CONFIG.WEEKS_SHOWN); refresh(); });
 document.getElementById("next").addEventListener("click", ()=>{ anchor = addDays(anchor, mode==="day3" ?  1 :  7*CONFIG.WEEKS_SHOWN); refresh(); });
-document.getElementById("today").addEventListener("click", ()=>{ anchor = new Date(); refresh(); });
+document.getElementById("today").addEventListener("click", ()=>{ anchor = new Date(); pendingScrollNow = true; refresh(); });
 document.getElementById("hideRoutine").addEventListener("change", e=>{ hideRoutine=e.target.checked; renderView(); });
 document.getElementById("hideDone").addEventListener("change", e=>{ hideDone=e.target.checked; renderView(); });
 document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeSheet(); });
@@ -794,8 +817,36 @@ function tickNow(){
   if(today !== TODAY){ TODAY = today; renderView(); return; }   // 日付をまたいだら描き直す
   const nm = nowMinutes();
   document.querySelectorAll(".tl-now").forEach(el=> el.style.top = ((nm/60)*PXH) + "px");
+  updateNowBtn();
 }
 setInterval(tickNow, 30000);   // 30秒ごとに位置を更新
+
+/* ============================================================
+   現在時刻（赤線）へ戻る：起動時は自動、離れたら右下の「今」ボタン
+   ============================================================ */
+function scrollToNow(smooth){
+  const el = document.querySelector(".tl-now");
+  if(!el) return;
+  const r = el.getBoundingClientRect();
+  const target = window.scrollY + r.top - window.innerHeight/3;   // 画面の上から1/3あたりへ
+  window.scrollTo({ top: Math.max(0, target), behavior: smooth ? "smooth" : "auto" });
+}
+function updateNowBtn(){
+  const btn = document.getElementById("nowBtn");
+  if(!btn) return;
+  const el = document.querySelector(".tl-now");
+  if(!el){ btn.classList.remove("show"); return; }   // 今日が範囲外なら赤線が無い
+  const r = el.getBoundingClientRect();
+  const visible = r.top > 64 && r.top < window.innerHeight - 24;
+  btn.classList.toggle("show", !visible);            // 見えていない時だけ出す
+}
+document.getElementById("nowBtn").addEventListener("click", ()=>scrollToNow(true));
+let nowTick = false;
+window.addEventListener("scroll", ()=>{
+  if(nowTick) return; nowTick = true;
+  requestAnimationFrame(()=>{ nowTick = false; updateNowBtn(); });
+}, { passive:true });
+window.addEventListener("resize", updateNowBtn, { passive:true });
 
 /* ============================================================
    PWA: ホーム画面に追加すると全画面＆アイコンで起動できるように
@@ -844,6 +895,7 @@ function boot(){
   events = mockEvents();
   setStatus(false);
   renderCals();
+  pendingScrollNow = true;                // 起動時は現在時刻付近から始める
   renderView();
 }
 boot();
