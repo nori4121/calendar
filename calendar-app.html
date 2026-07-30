@@ -361,7 +361,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b28";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b29";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -653,18 +653,16 @@ function openSheet(id){
   document.getElementById("sheetMeta").textContent =
     when + " · " + (cal?cal.name:"") + (e.routine?" · 繰り返し":" · 単発")
     + (e.done && e.doneAt ? " · 済 "+e.doneAt : "")
-    + (writable ? "" : " · 閲覧のみ（Google側で済にできません）");
+    + (writable ? "" : " · 閲覧のみ（済にするとこのアプリで非表示）");
   const acts = document.getElementById("sheetActions");
   // 予定の作成・削除・時間変更などの本格的な編集は Google 側に任せる（このボタンで飛ぶ）
   const openBtn = e.htmlLink
     ? `<a class="btn" id="act-open" href="${esc(e.htmlLink)}" target="_blank" rel="noopener">Googleで開く</a>`
     : "";
-  // 書き込み権限のあるカレンダーだけ「済」を出す。閲覧のみは無効表示にする
-  const doneBtn = !writable
-    ? `<button class="btn" disabled title="このカレンダーは閲覧のみです">済にできません</button>`
-    : (e.done
-        ? `<button class="btn" id="act-undo">済を取り消す</button>`
-        : `<button class="btn primary" id="act-done">済にする</button>`);
+  // 書き込み可＝Googleを更新して済。閲覧のみ＝アプリ上だけ非表示（ローカル済）。どちらもボタンは同じ
+  const doneBtn = e.done
+    ? `<button class="btn" id="act-undo">済を取り消す</button>`
+    : `<button class="btn primary" id="act-done">済にする</button>`;
   acts.innerHTML = doneBtn + openBtn;
   acts.querySelector("#act-done") && acts.querySelector("#act-done").addEventListener("click",()=>markDone(id,true));
   acts.querySelector("#act-undo") && acts.querySelector("#act-undo").addEventListener("click",()=>markDone(id,false));
@@ -675,18 +673,24 @@ document.getElementById("sheetClose").addEventListener("click", closeSheet);
 
 async function markDone(id, done){
   const e = events.find(x=>x.id===id); if(!e) return;
-  if(LIVE){
-    try{
-      await patchDone(e, done);
-    }catch(err){
-      toast("書き込みに失敗しました: "+(err.message||err)); return;
+  const cal = calById(e.calId);
+  const writable = !cal || cal.writable !== false;
+  if(writable){
+    if(LIVE){
+      try{ await patchDone(e, done); }
+      catch(err){ toast("書き込みに失敗しました: "+(err.message||err)); return; }
     }
+  }else{
+    // 読み取り専用 → Googleは変えず、アプリ上だけ隠す（ローカル済・両端末同期）
+    if(done) localDone.add(e.id); else localDone.delete(e.id);
+    saveLocalDone();
   }
   e.done = done;
   e.doneAt = done ? nowStamp() : "";
   closeSheet(); renderView();
-  const colState = LIVE ? "／Google保存後の色=" + (e.colorId ? "ID " + e.colorId : "既定(クリア済)") : "";
-  toast((done ? "済にしました（灰色に）" : "済を取り消しました") + colState);
+  const colState = (LIVE && writable) ? "／Google保存後の色=" + (e.colorId ? "ID " + e.colorId : "既定(クリア済)") : "";
+  const how = writable ? (done ? "（灰色に）" : "") : (done ? "（このアプリで非表示）" : "（再表示）");
+  toast((done ? "済にしました" : "済を取り消しました") + how + colState);
 }
 
 function nowStamp(){
@@ -1010,6 +1014,8 @@ function installManifest(){
 /* ---- 上部の一言スペース：端末に即保存＋Google側にも保存して両端末で共有 ---- */
 let bannerEventId = null;                 // Google側の保管用イベントID
 let bannerSaveTimer = null;
+let localDone = new Set();                // 読み取り専用の予定を「アプリ上だけ済（非表示）」にしたID
+try{ localDone = new Set(JSON.parse(localStorage.getItem("cal_localdone")||"[]")); }catch(e){}
 function setBannerH(){                     // 固定バナーの高さを CSS 変数へ（3日ビューの見出し位置に使う）
   const b = document.querySelector(".banner");
   if(b) document.documentElement.style.setProperty("--bannerH", b.offsetHeight + "px");
@@ -1050,26 +1056,47 @@ async function loadBannerRemote(){
       try{ localStorage.setItem("cal_banner", t); }catch(e){}
       fitBanner();
     }
+    // ローカル済の一覧（description に JSON で保存してある）を取り込む
+    try{ const d = JSON.parse(ev.description || "{}");
+      if(Array.isArray(d.localDone)){ localDone = new Set(d.localDone);
+        localStorage.setItem("cal_localdone", JSON.stringify([...localDone])); } }catch(_){}
+    applyLocalDone();
   }catch(e){}
 }
-/* Google側（primaryカレンダーの保管用イベント）へ書き込む */
+/* 保管用イベントを用意（無ければ作る）。一言 と ローカル済 を同じイベントに置く */
+async function ensureSettingsEvent(){
+  if(bannerEventId) return bannerEventId;
+  const created = await api("/calendars/primary/events", { method:"POST", body: JSON.stringify({
+    summary:"（カレンダーアプリのメモ／消さないでください）",
+    start:{ date:"2000-01-01" }, end:{ date:"2000-01-02" },
+    transparency:"transparent", visibility:"private",
+    extendedProperties:{ private:{ calappBanner:"1" } }
+  }) });
+  if(created) bannerEventId = created.id;
+  return bannerEventId;
+}
+/* 一言をGoogleへ（extendedProperties.private.banner） */
 async function saveBannerRemote(text){
   if(!LIVE) return;                          // 未接続なら端末保存のみ
-  try{
-    if(bannerEventId){
-      await api("/calendars/primary/events/"+encodeURIComponent(bannerEventId),
-        { method:"PATCH", body: JSON.stringify({ extendedProperties:{ private:{ banner:text } } }) });
-    }else{
-      const body = {
-        summary:"（カレンダーアプリのメモ／消さないでください）",
-        start:{ date:"2000-01-01" }, end:{ date:"2000-01-02" },
-        transparency:"transparent", visibility:"private",
-        extendedProperties:{ private:{ calappBanner:"1", banner:text } }
-      };
-      const created = await api("/calendars/primary/events", { method:"POST", body: JSON.stringify(body) });
-      if(created) bannerEventId = created.id;
-    }
+  try{ const id = await ensureSettingsEvent(); if(!id) return;
+    await api("/calendars/primary/events/"+encodeURIComponent(id),
+      { method:"PATCH", body: JSON.stringify({ extendedProperties:{ private:{ banner:text } } }) });
   }catch(e){}
+}
+/* ローカル済の一覧をGoogleへ（description に JSON） */
+async function saveLocalDone(){
+  try{ localStorage.setItem("cal_localdone", JSON.stringify([...localDone])); }catch(e){}
+  if(!LIVE) return;
+  try{ const id = await ensureSettingsEvent(); if(!id) return;
+    await api("/calendars/primary/events/"+encodeURIComponent(id),
+      { method:"PATCH", body: JSON.stringify({ description: JSON.stringify({ localDone:[...localDone] }) }) });
+  }catch(e){}
+}
+/* ローカル済のIDを、読み込んだ予定へ反映（済にして隠す） */
+function applyLocalDone(){
+  let changed = false;
+  for(const e of events){ if(localDone.has(e.id) && !e.done){ e.done = true; changed = true; } }
+  if(changed) renderView();
 }
 
 /* ============================================================
