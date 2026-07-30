@@ -157,11 +157,12 @@
   .tl-daylabel.sun .dn,.tl-daylabel.sun .dw{color:var(--shu)}
   .tl-daylabel.sat .dn,.tl-daylabel.sat .dw{color:#3F5A73}
   .tl-daylabel.today .dn{background:var(--shu);color:#fff;border-radius:999px;padding:2px 9px}
-  /* 終日ゾーン：左に「終日」ラベル＋横いっぱいのバー＋下に区切り線（時間軸と切り離す） */
-  .tl-allday{position:relative;margin:0 0 6px 56px;padding:2px 0 7px;
+  /* 終日ゾーン：その日を見ている間ずっと上に貼り付く（sticky）。左「終日」ラベル＋横バー＋区切り線 */
+  .tl-allday{position:sticky;top:var(--bannerH,0);z-index:12;background:var(--paper);
+    margin:0 0 6px 56px;padding:2px 0 7px;
     border-bottom:1px solid var(--grid-strong);display:flex;flex-direction:column;gap:3px}
   .tl-adlabel{position:absolute;left:-54px;top:3px;width:48px;text-align:right;
-    font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+    font-family:var(--mono);font-size:10px;color:var(--ink-faint);background:var(--paper)}
   .ad{
     display:block;width:100%;box-sizing:border-box;
     font-size:11px;line-height:1.35;padding:4px 9px;background:#fff;color:var(--ink);
@@ -170,10 +171,6 @@
   }
   .ad.routine{border-left-style:dotted}
   .ad.done{border-left-color:var(--gray)!important;background:#F1F1EE!important;color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--gray)}
-  /* 今日の終日予定を上部に固定表示（スクロールしても常に見える） */
-  .todayad{position:sticky;top:var(--bannerH,0);z-index:14;max-width:640px;margin:0 0 6px;background:var(--paper)}
-  .todayad.hide{display:none}
-  .todayad .tl-allday{margin:0;padding-top:4px}
   .tl-grid{position:relative;margin-left:56px;border-left:1px solid var(--grid-strong)}
   .tl-hour{position:absolute;left:0;right:0;border-top:1px solid var(--grid)}
   .tl-hour.h6,.tl-hour.h12,.tl-hour.h18{border-top-color:var(--grid-strong)}
@@ -317,8 +314,6 @@
     placeholder="タップして一言を（備忘録・座右の銘など）"></textarea>
 </div>
 
-<div class="todayad hide" id="todayAd"></div>
-
 <div id="view"></div>
 
 <footer>
@@ -366,7 +361,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b25";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b26";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -493,17 +488,6 @@ function renderCals(){
   });
 }
 
-/* 今日の終日予定を、上部の固定バーに出す（スクロールビューのみ・無ければ隠す） */
-function fillTodayAd(){
-  const box = document.getElementById("todayAd");
-  if(!box) return;
-  const bars = (mode==="scroll") ? allDayBtns(TODAY, visibleEvents()) : "";
-  if(!bars){ box.classList.add("hide"); box.innerHTML=""; return; }
-  box.classList.remove("hide");
-  box.innerHTML = `<div class="tl-allday"><span class="tl-adlabel">終日</span>${bars}</div>`;
-  box.querySelectorAll(".ad").forEach(el=> el.addEventListener("click",()=>openSheet(el.dataset.id)));
-}
-
 function renderView(){
   const days = daysToShow();
   document.getElementById("rangesub").textContent =
@@ -515,7 +499,6 @@ function renderView(){
   viewEl.querySelectorAll(".tl-ev,.ad").forEach(el=>{
     el.addEventListener("click",()=>openSheet(el.dataset.id));
   });
-  fillTodayAd();                         // 今日の終日予定を上部固定バーに
   updateNowBtn();                        // まず確実に表示（rAF抑制時の保険）
   requestAnimationFrame(()=>{
     if(pendingScrollNow){ pendingScrollNow=false; scrollToNow(false); }
@@ -592,7 +575,7 @@ function renderScroll(days){
     const lblCls = ["tl-daylabel", k===0?"sun":k===6?"sat":"", d===TODAY?"today":""].join(" ");
     return `<section class="tl-day">
       <div class="${lblCls}"><span class="dn">${+d.split("-")[2]}</span><span class="dw">${WK[k]}曜日 · ${md(d)}</span></div>
-      ${(ad && d!==TODAY) ? `<div class="tl-allday"><span class="tl-adlabel">終日</span>${ad}</div>` : ""}
+      ${ad ? `<div class="tl-allday"><span class="tl-adlabel">終日</span>${ad}</div>` : ""}
       <div class="tl-grid" style="height:${24*PXH}px">${hoursCol()}${nowLine}${evs}</div>
     </section>`;
   }).join("") + `</div>`;
