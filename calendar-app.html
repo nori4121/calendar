@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>カレンダー — レーン</title>
+<title>カレンダー</title>
 <style>
   :root{
     --paper:#F7F7F4;
@@ -137,12 +137,13 @@
   .tl-daylabel.sat .dn,.tl-daylabel.sat .dw{color:#3F5A73}
   .tl-daylabel.today .dn{background:var(--shu);color:#fff;border-radius:999px;padding:2px 9px}
   .tl-allday{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 8px 56px}
-  .tl-allday .ad{
+  .ad{
     font-size:10.5px;line-height:1.3;padding:3px 7px;background:#fff;color:var(--ink);
-    border-left:2.5px solid var(--ink);border-top:none;cursor:pointer;max-width:100%
+    border-left:2.5px solid var(--ink);border-top:none;cursor:pointer;max-width:100%;
+    font-family:inherit;text-align:left
   }
-  .tl-allday .ad.routine{opacity:.6;border-left-style:dotted}
-  .tl-allday .ad.done{border-left-color:var(--gray)!important;background:#F1F1EE;color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--gray)}
+  .ad.routine{opacity:.6;border-left-style:dotted}
+  .ad.done{border-left-color:var(--gray)!important;background:#F1F1EE;color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--gray)}
   .tl-grid{position:relative;margin-left:56px;border-left:1px solid var(--grid-strong)}
   .tl-hour{position:absolute;left:0;right:0;border-top:1px solid var(--grid)}
   .tl-hour.h6,.tl-hour.h12,.tl-hour.h18{border-top-color:var(--grid-strong)}
@@ -163,6 +164,26 @@
     font-size:10px;color:var(--shu);font-weight:600}
   .tl-now{position:absolute;left:0;right:0;height:2px;background:var(--shu);z-index:7;pointer-events:none}
   .tl-now::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--shu)}
+
+  /* ---- 3-day view (3 columns, shared time axis) ---- */
+  .d3{--gut:52px}
+  .d3head,.d3adrow,.d3body{display:grid;grid-template-columns:var(--gut) repeat(3,minmax(0,1fr))}
+  .d3head{position:sticky;top:0;z-index:8;background:var(--paper);border-bottom:1px solid var(--grid-strong)}
+  .d3dh{padding:6px 4px 5px;text-align:center;border-left:1px solid var(--grid);font-family:var(--mono)}
+  .d3dh .d3dn{font-size:18px;line-height:1.1;display:block}
+  .d3dh .d3dw{font-size:11px;color:var(--ink-soft)}
+  .d3dh.sun .d3dn,.d3dh.sun .d3dw{color:var(--shu)}
+  .d3dh.sat .d3dn,.d3dh.sat .d3dw{color:#3F5A73}
+  .d3dh.today{background:var(--ink)}
+  .d3dh.today .d3dn,.d3dh.today .d3dw{color:var(--paper)}
+  .d3adrow{border-bottom:1px solid var(--grid-strong)}
+  .d3adcell{border-left:1px solid var(--grid);padding:3px;display:flex;flex-direction:column;gap:3px;min-height:22px}
+  .d3gutter{position:relative}
+  .d3hr{position:absolute;right:6px;transform:translateY(-50%);font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+  .d3col{position:relative;border-left:1px solid var(--grid)}
+  .d3col.today{background:rgba(255,255,255,.55)}
+  .d3line{position:absolute;left:0;right:0;border-top:1px solid var(--grid)}
+  .d3line.h6,.d3line.h12,.d3line.h18{border-top-color:var(--grid-strong)}
 
   /* ---- action sheet (bottom) ---- */
   .sheet{
@@ -214,13 +235,13 @@
   <button class="btn primary" id="connect">Googleに接続</button>
   <button class="btn" id="reload" disabled>再読込</button>
   <span class="modes" role="group" aria-label="表示切替">
-    <button data-mode="lane" aria-pressed="true">レーン</button>
-    <button data-mode="timeline" aria-pressed="false">時間軸</button>
+    <button data-mode="day3" aria-pressed="false">3日</button>
+    <button data-mode="scroll" aria-pressed="true">スクロール</button>
   </span>
   <span class="nav">
-    <button id="prev" title="前の週">◀</button>
-    <button id="today" title="今週へ">今日</button>
-    <button id="next" title="次の週">▶</button>
+    <button id="prev" title="前へ">◀</button>
+    <button id="today" title="今日へ">今日</button>
+    <button id="next" title="次へ">▶</button>
   </span>
   <label class="toggle"><input type="checkbox" id="hideRoutine"> ルーティンを隠す</label>
   <label class="toggle"><input type="checkbox" id="hideDone"> 済を隠す</label>
@@ -272,7 +293,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b2";   // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b3";   // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -282,9 +303,9 @@ let LIVE = false;                 // 実データに接続済みか
 let tokenClient = null;
 let calendars = [];               // [{id, name, color, off}]
 let events = [];                  // 正規化済みイベント
-let weekStart = mondayOf(new Date());   // 表示中の週(最初の週)の月曜
+let anchor = new Date();                // 表示の基準日（既定は今日）
 let hideRoutine = false, hideDone = false;
-let mode = "lane";                      // "lane" | "timeline"
+let mode = "scroll";                    // "scroll"(一枚もの) | "day3"(3日)
 const PXH = 44;                         // 時間軸: 1時間の高さ(px)
 
 /* ============================================================
@@ -305,15 +326,18 @@ function md(s){ const [,m,dd]=s.split("-"); return (+m)+"/"+(+dd); }
 function wdOf(s){ return parseYmd(s).getDay(); }
 const TODAY = ymd(new Date());
 
-function weeksRange(){
-  const weeks = [];
-  for(let w=0; w<CONFIG.WEEKS_SHOWN; w++){
-    const start = addDays(weekStart, w*7);
-    const days = Array.from({length:7}, (_,i)=>ymd(addDays(start,i)));
-    weeks.push({ start, days,
-      label: "WEEK "+(w+1)+" — "+md(days[0])+" ("+WK[wdOf(days[0])]+") – "+md(days[6])+" ("+WK[wdOf(days[6])]+")" });
-  }
-  return weeks;
+/* 表示する日付の並び（モード別） */
+function daysToShow(){
+  if(mode==="day3") return [0,1,2].map(i=>ymd(addDays(anchor,i)));
+  const start = mondayOf(anchor);                    // スクロールは週頭から
+  return Array.from({length:7*CONFIG.WEEKS_SHOWN}, (_,i)=>ymd(addDays(start,i)));
+}
+/* データ取得範囲（両モードを覆う広め） */
+function fetchRange(){
+  const start = mondayOf(anchor);
+  const timeMin = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0,0,0,0);
+  const timeMax = addDays(start, 7*CONFIG.WEEKS_SHOWN);
+  return { timeMin, timeMax };
 }
 
 const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -395,97 +419,101 @@ function renderCals(){
 }
 
 function renderView(){
-  const weeks = weeksRange();
+  const days = daysToShow();
   document.getElementById("rangesub").textContent =
-    md(weeks[0].days[0]) + " – " + md(weeks[weeks.length-1].days[6]) + "　"
+    md(days[0]) + " – " + md(days[days.length-1]) + "　"
     + (LIVE ? "Googleカレンダーに接続中" : "モックデータ（未接続）") + "　/ build " + BUILD;
 
-  viewEl.innerHTML = (mode==="timeline" ? renderTimeline(weeks) : renderLane(weeks))
+  viewEl.innerHTML = (mode==="day3" ? renderDay3(days) : renderScroll(days))
                      || `<p class="empty-note">表示できる予定がありません。</p>`;
-  viewEl.querySelectorAll(".chip,.tl-ev,.ad").forEach(el=>{
+  viewEl.querySelectorAll(".tl-ev,.ad").forEach(el=>{
     el.addEventListener("click",()=>openSheet(el.dataset.id));
   });
 }
 
-function renderLane(weeks){
+/* ============================================================
+   時間軸ビュー（スクロール／3日で共通のパーツ）
+   ============================================================ */
+function toMin(hm){ const [h,m]=hm.split(":").map(Number); return h*60+(m||0); }
+function nowMinutes(){ const d=new Date(); return d.getHours()*60+d.getMinutes(); }
+
+/* その日の時刻付き予定を、重なりを列に振り分けて返す */
+function timedOf(d, vis){
+  const timed = vis.filter(e=>e.date===d && !e.allDay && e.time).map(e=>{
+    const s = toMin(e.time);
+    let en = e.end ? toMin(e.end) : s+30;
+    if(en <= s) en = Math.min(s+30, 24*60);
+    return { e, s, en };
+  });
+  packColumns(timed);
+  return timed;
+}
+/* 1件の予定ブロック（絶対配置）。列は position:relative な入れ物側で受ける */
+function evBtnHtml(o){
+  const cal = calById(o.e.calId) || {color:"var(--ink)"};
+  const top = (o.s/60)*PXH, hgt = Math.max((o.en-o.s)/60*PXH, 16);
+  const w = 100/o.ncol, left = o.col*w;
+  const cls = ["tl-ev", o.e.routine?"routine":"", o.e.done?"done":""].join(" ");
+  const border = o.e.done ? "var(--gray)" : cal.color;
+  const label = o.e.time + (o.e.end?("–"+o.e.end):"");
+  return `<button class="${cls}" data-id="${esc(o.e.id)}"
+    style="top:${top}px;height:${hgt}px;left:calc(${left}% + 1px);width:calc(${w}% - 2px);border-color:${border}">
+    <span class="t">${label}</span><span class="ttl">${esc(o.e.title)}</span></button>`;
+}
+/* その日の終日予定のボタン群 */
+function allDayBtns(d, vis){
+  return vis.filter(e=>e.date===d && (e.allDay || !e.time)).map(e=>{
+    const cal = calById(e.calId) || {color:"var(--ink)"};
+    const cls = ["ad", e.routine?"routine":"", e.done?"done":""].join(" ");
+    const border = e.done ? "var(--gray)" : cal.color;
+    return `<button class="${cls}" data-id="${esc(e.id)}" style="border-color:${border}">${esc(e.title)}</button>`;
+  }).join("");
+}
+const hoursCol = () => Array.from({length:25}, (_,h)=>
+  `<div class="tl-hour h${h}" style="top:${h*PXH}px"><span>${h}時</span></div>`).join("");
+
+/* ---- スクロール（一枚もの）: 0〜24時グリッドを日ごとに縦連結 ---- */
+function renderScroll(days){
   const vis = visibleEvents();
-  return weeks.map(w=>{
-    const heads = w.days.map(d=>{
-      const k = wdOf(d);
-      const cls = ["dayhead", k===0?"sun":k===6?"sat":"", d===TODAY?"today":""].join(" ");
-      return `<div class="${cls}"><span class="dnum">${+d.split("-")[2]}</span><span class="dwk">${WK[k]}</span></div>`;
-    }).join("");
-
-    const lanes = calendars.filter(c=>!c.off).map(c=>{
-      const cells = w.days.map(d=>{
-        const items = vis.filter(e=>e.calId===c.id && e.date===d).sort(cmp).map(e=>chipHtml(e,c)).join("");
-        return `<div class="cell${d===TODAY?" todaycol":""}">${items}</div>`;
-      }).join("");
-      return `<div class="lanename"><span class="swatch" style="background:${c.color}"></span>${esc(c.name)}</div>${cells}`;
-    }).join("");
-
-    return `<section class="weekblock">
-      <p class="weeklabel">${w.label}</p>
-      <div class="lanescroll"><div class="lanegrid"><div class="corner"></div>${heads}${lanes}</div></div>
+  const nm = nowMinutes();
+  return days.map(d=>{
+    const k = wdOf(d);
+    const evs = timedOf(d,vis).map(evBtnHtml).join("");
+    const nowLine = (d===TODAY) ? `<div class="tl-now" style="top:${(nm/60)*PXH}px"></div>` : "";
+    const ad = allDayBtns(d,vis);
+    const lblCls = ["tl-daylabel", k===0?"sun":k===6?"sat":"", d===TODAY?"today":""].join(" ");
+    return `<section class="tl-day">
+      <div class="${lblCls}"><span class="dn">${+d.split("-")[2]}</span><span class="dw">${WK[k]}曜日 · ${md(d)}</span></div>
+      ${ad ? `<div class="tl-allday">${ad}</div>` : ""}
+      <div class="tl-grid" style="height:${24*PXH}px">${hoursCol()}${nowLine}${evs}</div>
     </section>`;
   }).join("");
 }
 
-/* ---- 時間軸: 0〜24時グリッドを日ごとに縦連結 ---- */
-function toMin(hm){ const [h,m]=hm.split(":").map(Number); return h*60+(m||0); }
-
-function renderTimeline(weeks){
+/* ---- 3日ビュー: 3日を横に並べ、縦を時間軸に ---- */
+function renderDay3(days){
   const vis = visibleEvents();
-  const days = weeks.flatMap(w=>w.days);
-  const nowMin = (()=>{ const d=new Date(); return d.getHours()*60+d.getMinutes(); })();
-
-  return days.map(d=>{
+  const nm = nowMinutes();
+  const H = 24*PXH;
+  const heads = days.map(d=>{
     const k = wdOf(d);
-    const dayItems = vis.filter(e=>e.date===d);
-    const allday = dayItems.filter(e=>e.allDay || !e.time);
-    const timed  = dayItems.filter(e=>!e.allDay && e.time).map(e=>{
-      const s = toMin(e.time);
-      let en = e.end ? toMin(e.end) : s+30;
-      if(en <= s) en = Math.min(s+30, 24*60);
-      return { e, s, en };
-    });
-
-    // 重なりを列に振り分ける
-    packColumns(timed);
-
-    const hours = Array.from({length:25}, (_,h)=>
-      `<div class="tl-hour h${h}" style="top:${h*PXH}px"><span>${h}時</span></div>`).join("");
-
-    const evs = timed.map(o=>{
-      const cal = calById(o.e.calId) || {color:"var(--ink)"};
-      const top = (o.s/60)*PXH;
-      const hgt = Math.max((o.en-o.s)/60*PXH, 16);
-      const w = 100/o.ncol, left = o.col*w;
-      const cls = ["tl-ev", o.e.routine?"routine":"", o.e.done?"done":""].join(" ");
-      const border = o.e.done ? "var(--gray)" : cal.color;
-      const label = o.e.time + (o.e.end?("–"+o.e.end):"");
-      return `<button class="${cls}" data-id="${esc(o.e.id)}"
-        style="top:${top}px;height:${hgt}px;left:calc(${left}% + 1px);width:calc(${w}% - 2px);border-color:${border}">
-        <span class="t">${label}</span><span class="ttl">${esc(o.e.title)}</span></button>`;
-    }).join("");
-
-    const nowLine = (d===TODAY)
-      ? `<div class="tl-now" style="top:${(nowMin/60)*PXH}px"></div>` : "";
-
-    const adHtml = allday.map(e=>{
-      const cal = calById(e.calId) || {color:"var(--ink)"};
-      const cls = ["ad", e.routine?"routine":"", e.done?"done":""].join(" ");
-      const border = e.done ? "var(--gray)" : cal.color;
-      return `<button class="${cls}" data-id="${esc(e.id)}" style="border-color:${border}">${esc(e.title)}</button>`;
-    }).join("");
-
-    const lblCls = ["tl-daylabel", k===0?"sun":k===6?"sat":"", d===TODAY?"today":""].join(" ");
-    return `<section class="tl-day">
-      <div class="${lblCls}"><span class="dn">${+d.split("-")[2]}</span><span class="dw">${WK[k]}曜日 · ${md(d)}</span></div>
-      ${adHtml ? `<div class="tl-allday">${adHtml}</div>` : ""}
-      <div class="tl-grid" style="height:${24*PXH}px">${hours}${nowLine}${evs}</div>
-    </section>`;
+    const cls = ["d3dh", k===0?"sun":k===6?"sat":"", d===TODAY?"today":""].join(" ");
+    return `<div class="${cls}"><span class="d3dn">${+d.split("-")[2]}</span><span class="d3dw">${WK[k]}</span></div>`;
   }).join("");
+  const hasAd = days.some(d=>vis.some(e=>e.date===d && (e.allDay || !e.time)));
+  const adRow = days.map(d=>`<div class="d3adcell">${allDayBtns(d,vis)}</div>`).join("");
+  const gutter = Array.from({length:25}, (_,h)=>`<div class="d3hr" style="top:${h*PXH}px">${h}時</div>`).join("");
+  const cols = days.map(d=>{
+    const lines = Array.from({length:25}, (_,h)=>`<div class="d3line h${h}" style="top:${h*PXH}px"></div>`).join("");
+    const evs = timedOf(d,vis).map(evBtnHtml).join("");
+    const nowLine = (d===TODAY) ? `<div class="tl-now" style="top:${(nm/60)*PXH}px"></div>` : "";
+    return `<div class="d3col${d===TODAY?" today":""}" style="height:${H}px">${lines}${nowLine}${evs}</div>`;
+  }).join("");
+  return `<div class="d3">
+    <div class="d3head"><div></div>${heads}</div>
+    ${hasAd ? `<div class="d3adrow"><div></div>${adRow}</div>` : ""}
+    <div class="d3body"><div class="d3gutter" style="height:${H}px">${gutter}</div>${cols}</div>
+  </div>`;
 }
 
 /* 重なる予定を列に割り当てる（col: 列番号, ncol: そのかたまりの列数） */
@@ -615,9 +643,7 @@ async function loadLive(){
       off: c.selected===false
     }));
     // 表示範囲だけ取得する
-    const weeks = weeksRange();
-    const timeMin = new Date(weeks[0].start); timeMin.setHours(0,0,0,0);
-    const timeMax = addDays(weeks[weeks.length-1].start, 7);
+    const { timeMin, timeMax } = fetchRange();
     const all = [];
     for(const c of calendars){
       const q = new URLSearchParams({
@@ -716,9 +742,9 @@ document.querySelectorAll(".modes button").forEach(b=>{
 });
 document.getElementById("connect").addEventListener("click", connect);
 document.getElementById("reload").addEventListener("click", ()=>{ if(LIVE) loadLive(); });
-document.getElementById("prev").addEventListener("click", ()=>{ weekStart = addDays(weekStart, -7*CONFIG.WEEKS_SHOWN); refresh(); });
-document.getElementById("next").addEventListener("click", ()=>{ weekStart = addDays(weekStart,  7*CONFIG.WEEKS_SHOWN); refresh(); });
-document.getElementById("today").addEventListener("click", ()=>{ weekStart = mondayOf(new Date()); refresh(); });
+document.getElementById("prev").addEventListener("click", ()=>{ anchor = addDays(anchor, mode==="day3" ? -1 : -7*CONFIG.WEEKS_SHOWN); refresh(); });
+document.getElementById("next").addEventListener("click", ()=>{ anchor = addDays(anchor, mode==="day3" ?  1 :  7*CONFIG.WEEKS_SHOWN); refresh(); });
+document.getElementById("today").addEventListener("click", ()=>{ anchor = new Date(); refresh(); });
 document.getElementById("hideRoutine").addEventListener("change", e=>{ hideRoutine=e.target.checked; renderView(); });
 document.getElementById("hideDone").addEventListener("change", e=>{ hideDone=e.target.checked; renderView(); });
 document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeSheet(); });
