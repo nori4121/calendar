@@ -272,6 +272,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
+const BUILD = "b2";   // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -397,7 +398,7 @@ function renderView(){
   const weeks = weeksRange();
   document.getElementById("rangesub").textContent =
     md(weeks[0].days[0]) + " – " + md(weeks[weeks.length-1].days[6]) + "　"
-    + (LIVE ? "Googleカレンダーに接続中" : "モックデータ（未接続）");
+    + (LIVE ? "Googleカレンダーに接続中" : "モックデータ（未接続）") + "　/ build " + BUILD;
 
   viewEl.innerHTML = (mode==="timeline" ? renderTimeline(weeks) : renderLane(weeks))
                      || `<p class="empty-note">表示できる予定がありません。</p>`;
@@ -551,7 +552,8 @@ async function markDone(id, done){
   e.done = done;
   e.doneAt = done ? nowStamp() : "";
   closeSheet(); renderView();
-  toast(done ? "済にしました（色を灰色に）" : "済を取り消しました");
+  const colState = LIVE ? "／Google保存後の色=" + (e.colorId ? "ID " + e.colorId : "既定(クリア済)") : "";
+  toast((done ? "済にしました（灰色に）" : "済を取り消しました") + colState);
 }
 
 function nowStamp(){
