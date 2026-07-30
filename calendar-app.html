@@ -21,8 +21,8 @@
     --shu:#B4472F;
     --shu-deep:#8E3722;
     --gray:#9AA0A6;               /* 済(灰色) の表示色 */
-    --gothic:"Hiragino Kaku Gothic ProN","Yu Gothic Medium","Yu Gothic",Meiryo,"Noto Sans CJK JP",sans-serif;
-    --mincho:"Hiragino Mincho ProN","Yu Mincho",YuMincho,"Noto Serif CJK JP",serif;
+    --gothic:"BIZ UDPGothic","Meiryo","Yu Gothic Medium","Yu Gothic","Hiragino Kaku Gothic ProN","Noto Sans JP","Noto Sans CJK JP",sans-serif;
+    --mincho:"BIZ UDPGothic","Meiryo","Yu Gothic Medium","Yu Gothic","Hiragino Kaku Gothic ProN","Noto Sans JP","Noto Sans CJK JP",sans-serif;
     --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Noto Sans Mono CJK JP",monospace;
   }
   *{box-sizing:border-box}
@@ -126,14 +126,15 @@
     display:flex;align-items:center;justify-content:center;line-height:1
   }
 
-  /* ---- 上部の一言スペース（備忘録・座右の銘） ---- */
-  .banner{max-width:640px;margin:14px 0 6px}
+  /* ---- 上部の一言スペース（固定表示・白い枠） ---- */
+  .banner{position:sticky;top:0;z-index:15;max-width:640px;margin:0 0 6px;padding:6px 0;background:var(--paper)}
   .bannertext{
-    font-family:var(--mincho);font-size:15px;line-height:1.75;color:var(--ink);
-    background:#FBF3D0;border-left:3px solid #E8C24A;border-radius:2px;
-    padding:11px 15px;outline:none;white-space:pre-wrap;word-break:break-word;min-height:1.75em
+    font-family:var(--gothic);font-size:14px;line-height:1.7;color:var(--ink);
+    background:#fff;border:1px solid var(--grid-strong);border-radius:3px;
+    padding:9px 13px;outline:none;white-space:pre-wrap;word-break:break-word;min-height:1.7em;
+    box-shadow:0 1px 4px -2px rgba(0,0,0,.28)
   }
-  .bannertext:focus{box-shadow:inset 0 0 0 2px rgba(232,194,74,.65)}
+  .bannertext:focus{border-color:var(--ink)}
   .bannertext:empty::before{content:attr(data-ph);color:var(--ink-faint)}
 
   /* ---- mode switch ---- */
@@ -217,7 +218,7 @@
   /* ---- 3-day view (3 columns, shared time axis) ---- */
   .d3{--gut:52px}
   .d3head,.d3adrow,.d3body{display:grid;grid-template-columns:var(--gut) repeat(3,minmax(0,1fr))}
-  .d3head{position:sticky;top:0;z-index:8;background:var(--paper);border-bottom:1px solid var(--grid-strong)}
+  .d3head{position:sticky;top:var(--bannerH,0);z-index:8;background:var(--paper);border-bottom:1px solid var(--grid-strong)}
   .d3dh{padding:6px 4px 5px;text-align:center;border-left:1px solid var(--grid);font-family:var(--mono)}
   .d3dh .d3dn{font-size:18px;line-height:1.1;display:block}
   .d3dh .d3dw{font-size:11px;color:var(--ink-soft)}
@@ -351,7 +352,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b18";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b19";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -797,6 +798,7 @@ async function loadLive(){
     events = all;
     pendingScrollNow = true;              // 接続直後は現在時刻へ寄せる
     renderCals(); renderView();
+    loadBannerRemote();                   // 一言スペースの共有文章をGoogleから取得
     toast("読み込み完了（"+events.length+"件）");
   }catch(err){
     const msg = String(err.message||err);
@@ -983,12 +985,63 @@ function installManifest(){
   document.head.appendChild(al);
 }
 
-/* ---- 上部の一言スペース：入力を端末に保存して次回も残す ---- */
+/* ---- 上部の一言スペース：端末に即保存＋Google側にも保存して両端末で共有 ---- */
+let bannerEventId = null;                 // Google側の保管用イベントID
+let bannerSaveTimer = null;
+function setBannerH(){                     // 固定バナーの高さを CSS 変数へ（3日ビューの見出し位置に使う）
+  const b = document.querySelector(".banner");
+  if(b) document.documentElement.style.setProperty("--bannerH", b.offsetHeight + "px");
+}
 function initBanner(){
   const el = document.getElementById("bannerText");
   if(!el) return;
   try{ el.textContent = localStorage.getItem("cal_banner") || ""; }catch(e){}
-  el.addEventListener("input", ()=>{ try{ localStorage.setItem("cal_banner", el.innerText.trim()==="" ? "" : el.innerText); }catch(e){} });
+  el.addEventListener("input", ()=>{
+    const txt = el.innerText.replace(/\n+$/,"");
+    try{ localStorage.setItem("cal_banner", txt); }catch(e){}
+    setBannerH();
+    clearTimeout(bannerSaveTimer);
+    bannerSaveTimer = setTimeout(()=>saveBannerRemote(txt), 900);   // 少し待ってからGoogleへ
+  });
+  window.addEventListener("resize", setBannerH, { passive:true });
+  setBannerH();
+}
+/* 接続後に呼ぶ：Google側の保管イベントから文章を読み込む */
+async function loadBannerRemote(){
+  if(!LIVE) return;
+  try{
+    const q = new URLSearchParams({ privateExtendedProperty:"calappBanner=1", maxResults:"1", singleEvents:"true" });
+    const data = await api("/calendars/primary/events?"+q.toString());
+    const ev = (data.items||[])[0];
+    if(!ev) return;
+    bannerEventId = ev.id;
+    const t = (ev.extendedProperties && ev.extendedProperties.private && ev.extendedProperties.private.banner) || "";
+    const el = document.getElementById("bannerText");
+    if(el && document.activeElement !== el){    // 編集中でなければ反映
+      el.textContent = t;
+      try{ localStorage.setItem("cal_banner", t); }catch(e){}
+      setBannerH();
+    }
+  }catch(e){}
+}
+/* Google側（primaryカレンダーの保管用イベント）へ書き込む */
+async function saveBannerRemote(text){
+  if(!LIVE) return;                          // 未接続なら端末保存のみ
+  try{
+    if(bannerEventId){
+      await api("/calendars/primary/events/"+encodeURIComponent(bannerEventId),
+        { method:"PATCH", body: JSON.stringify({ extendedProperties:{ private:{ banner:text } } }) });
+    }else{
+      const body = {
+        summary:"（カレンダーアプリのメモ／消さないでください）",
+        start:{ date:"2000-01-01" }, end:{ date:"2000-01-02" },
+        transparency:"transparent", visibility:"private",
+        extendedProperties:{ private:{ calappBanner:"1", banner:text } }
+      };
+      const created = await api("/calendars/primary/events", { method:"POST", body: JSON.stringify(body) });
+      if(created) bannerEventId = created.id;
+    }
+  }catch(e){}
 }
 
 /* ============================================================
