@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>カレンダー — レーン</title>
+<style>
+  :root{
+    --paper:#F7F7F4;
+    --grid:#E4E6E0;
+    --grid-strong:#D2D5CD;
+    --ink:#23262A;
+    --ink-soft:#6B7078;
+    --ink-faint:#9AA0A6;
+    --shu:#B4472F;
+    --shu-deep:#8E3722;
+    --gray:#9AA0A6;               /* 済(灰色) の表示色 */
+    --gothic:"Hiragino Kaku Gothic ProN","Yu Gothic Medium","Yu Gothic",Meiryo,"Noto Sans CJK JP",sans-serif;
+    --mincho:"Hiragino Mincho ProN","Yu Mincho",YuMincho,"Noto Serif CJK JP",serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Noto Sans Mono CJK JP",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    background-image:
+      linear-gradient(var(--grid) 1px,transparent 1px),
+      linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+    background-size:24px 24px;
+    color:var(--ink);font-family:var(--gothic);font-size:14px;line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 120px}
+
+  /* ---- header ---- */
+  header{border-bottom:1.5px solid var(--ink);padding-bottom:16px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--ink-soft);text-transform:uppercase;margin:0 0 6px}
+  h1{font-family:var(--mincho);font-weight:600;font-size:27px;letter-spacing:.06em;margin:0 0 4px}
+  .sub{color:var(--ink-soft);font-size:13px;margin:0}
+
+  /* ---- top controls ---- */
+  .controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin:20px 0 18px}
+  .btn{
+    font-family:var(--gothic);font-size:13px;letter-spacing:.02em;
+    background:transparent;border:1px solid var(--ink);color:var(--ink);
+    padding:8px 16px;cursor:pointer;transition:background .12s,color .12s
+  }
+  .btn:hover{background:var(--ink);color:var(--paper)}
+  .btn:focus-visible{outline:2px solid var(--shu);outline-offset:2px}
+  .btn.primary{background:var(--shu);border-color:var(--shu);color:#fff}
+  .btn.primary:hover{background:var(--shu-deep);border-color:var(--shu-deep)}
+  .btn:disabled{opacity:.4;cursor:default}
+  .btn:disabled:hover{background:transparent;color:var(--ink)}
+
+  .nav{display:inline-flex;border:1px solid var(--ink)}
+  .nav button{
+    font-family:var(--mono);font-size:13px;background:transparent;border:none;
+    border-right:1px solid var(--ink);padding:7px 13px;cursor:pointer;color:var(--ink)
+  }
+  .nav button:last-child{border-right:none}
+  .nav button:hover{background:var(--ink);color:var(--paper)}
+
+  .toggle{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-soft);cursor:pointer;user-select:none}
+  .toggle input{accent-color:var(--ink);width:15px;height:15px;cursor:pointer}
+
+  .status{margin-left:auto;display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--ink-soft)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--ink-faint);flex:0 0 8px}
+  .status.live .dot{background:#3f7a4f}
+  .status.mock .dot{background:var(--shu)}
+
+  /* ---- calendar filter chips ---- */
+  .cals{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 22px}
+  .calchip{
+    display:inline-flex;align-items:center;gap:7px;font-size:12px;
+    border:1px solid var(--grid-strong);background:#fff;padding:5px 11px;cursor:pointer;
+    color:var(--ink);user-select:none;transition:opacity .12s
+  }
+  .calchip .sw{width:10px;height:10px;border-radius:2px;flex:0 0 10px}
+  .calchip.off{opacity:.4;text-decoration:line-through;text-decoration-thickness:1px}
+
+  /* ---- lane grid ---- */
+  .weekblock{margin-bottom:30px}
+  .weeklabel{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--ink-soft);
+    border-bottom:1px solid var(--grid-strong);padding-bottom:5px;margin:0 0 0}
+  .lanescroll{overflow-x:auto}
+  .lanegrid{display:grid;grid-template-columns:92px repeat(7,minmax(104px,1fr));min-width:800px}
+  .corner{border-bottom:1px solid var(--grid-strong)}
+  .dayhead{padding:7px 6px 6px;border-bottom:1px solid var(--grid-strong);border-left:1px solid var(--grid);text-align:center}
+  .dayhead .dnum{font-family:var(--mono);font-size:16px;line-height:1.2;display:block}
+  .dayhead .dwk{font-size:10.5px;color:var(--ink-soft);letter-spacing:.08em}
+  .dayhead.sat .dwk,.dayhead.sat .dnum{color:#3F5A73}
+  .dayhead.sun .dwk,.dayhead.sun .dnum{color:var(--shu)}
+  .dayhead.today{background:var(--ink)}
+  .dayhead.today .dnum,.dayhead.today .dwk{color:var(--paper)}
+  .lanename{display:flex;align-items:center;gap:6px;font-size:12px;padding:8px 8px 8px 0;
+    border-bottom:1px solid var(--grid);justify-content:flex-end;text-align:right;color:var(--ink-soft)}
+  .swatch{width:3px;align-self:stretch;flex:0 0 3px}
+  .cell{border-left:1px solid var(--grid);border-bottom:1px solid var(--grid);padding:4px;min-height:48px;display:flex;flex-direction:column;gap:3px}
+  .cell.todaycol{background:rgba(255,255,255,.6)}
+
+  .chip{
+    position:relative;font-size:10.5px;line-height:1.35;padding:3px 6px 3px 6px;
+    border-left:2.5px solid var(--ink);background:#fff;color:var(--ink);
+    word-break:break-word;cursor:pointer;text-align:left;width:100%;
+    font-family:inherit;display:block
+  }
+  .chip:hover{box-shadow:1px 1px 0 var(--grid-strong)}
+  .chip:focus-visible{outline:2px solid var(--shu);outline-offset:1px}
+  .chip .t{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);display:block}
+  .chip.routine{opacity:.55;border-left-style:dotted}
+  .chip.allday{border-left:none;border-top:2.5px solid var(--ink)}
+  .chip.done{border-left-color:var(--gray)!important;background:#F1F1EE;color:var(--ink-faint)}
+  .chip.done .ttl{text-decoration:line-through;text-decoration-thickness:1px;text-decoration-color:var(--gray)}
+  .chip.done .seal{opacity:1}
+  .chip .seal{
+    position:absolute;top:2px;right:3px;font-family:var(--mincho);font-size:11px;
+    color:var(--shu);opacity:0;font-weight:600;
+    border:1.2px solid var(--shu);border-radius:50%;width:15px;height:15px;
+    display:flex;align-items:center;justify-content:center;line-height:1
+  }
+
+  /* ---- mode switch ---- */
+  .modes{display:inline-flex;border:1px solid var(--ink)}
+  .modes button{font-family:var(--gothic);font-size:13px;background:transparent;border:none;
+    border-right:1px solid var(--ink);padding:8px 15px;cursor:pointer;color:var(--ink);transition:background .12s}
+  .modes button:last-child{border-right:none}
+  .modes button:hover{background:var(--ink);color:var(--paper)}
+  .modes button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+  .modes button:focus-visible{outline:2px solid var(--shu);outline-offset:2px}
+
+  /* ---- timeline (24h grid, stacked days) ---- */
+  .tl-day{border-top:1px solid var(--grid-strong);padding-top:10px;margin-bottom:10px}
+  .tl-daylabel{display:flex;align-items:center;gap:9px;font-family:var(--mono);margin:0 0 8px;padding-left:2px}
+  .tl-daylabel .dn{font-size:19px;line-height:1}
+  .tl-daylabel .dw{font-size:12px;color:var(--ink-soft)}
+  .tl-daylabel.sun .dn,.tl-daylabel.sun .dw{color:var(--shu)}
+  .tl-daylabel.sat .dn,.tl-daylabel.sat .dw{color:#3F5A73}
+  .tl-daylabel.today .dn{background:var(--shu);color:#fff;border-radius:999px;padding:2px 9px}
+  .tl-allday{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 8px 56px}
+  .tl-allday .ad{
+    font-size:10.5px;line-height:1.3;padding:3px 7px;background:#fff;color:var(--ink);
+    border-left:2.5px solid var(--ink);border-top:none;cursor:pointer;max-width:100%
+  }
+  .tl-allday .ad.routine{opacity:.6;border-left-style:dotted}
+  .tl-allday .ad.done{border-left-color:var(--gray)!important;background:#F1F1EE;color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--gray)}
+  .tl-grid{position:relative;margin-left:56px;border-left:1px solid var(--grid-strong)}
+  .tl-hour{position:absolute;left:0;right:0;border-top:1px solid var(--grid)}
+  .tl-hour.h6,.tl-hour.h12,.tl-hour.h18{border-top-color:var(--grid-strong)}
+  .tl-hour span{position:absolute;left:-54px;top:-7px;width:48px;text-align:right;
+    font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+  .tl-ev{
+    position:absolute;overflow:hidden;border-left:3px solid var(--ink);background:#fff;
+    font-size:10.5px;line-height:1.22;padding:2px 5px;cursor:pointer;border-radius:2px;
+    box-shadow:0 1px 2px -1px rgba(0,0,0,.18);text-align:left;font-family:inherit;color:var(--ink)
+  }
+  .tl-ev:hover{z-index:6;box-shadow:0 2px 6px -1px rgba(0,0,0,.28)}
+  .tl-ev:focus-visible{outline:2px solid var(--shu);outline-offset:1px;z-index:6}
+  .tl-ev .t{font-family:var(--mono);font-size:9px;color:var(--ink-faint);display:block}
+  .tl-ev.routine{opacity:.62;border-left-style:dotted}
+  .tl-ev.done{border-left-color:var(--gray)!important;background:#F1F1EE;color:var(--ink-faint)}
+  .tl-ev.done .ttl{text-decoration:line-through;text-decoration-thickness:1px;text-decoration-color:var(--gray)}
+  .tl-ev.done::after{content:"済";position:absolute;top:1px;right:3px;font-family:var(--mincho);
+    font-size:10px;color:var(--shu);font-weight:600}
+  .tl-now{position:absolute;left:0;right:0;height:2px;background:var(--shu);z-index:7;pointer-events:none}
+  .tl-now::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--shu)}
+
+  /* ---- action sheet (bottom) ---- */
+  .sheet{
+    position:fixed;left:0;right:0;bottom:0;z-index:40;
+    background:var(--paper);border-top:2px solid var(--ink);
+    box-shadow:0 -8px 24px -18px rgba(0,0,0,.4);
+    transform:translateY(110%);transition:transform .24s cubic-bezier(.2,.8,.25,1)
+  }
+  .sheet.on{transform:translateY(0)}
+  .sheetin{max-width:1180px;margin:0 auto;padding:16px 20px calc(16px + env(safe-area-inset-bottom));
+    display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .sheetin .info{flex:1;min-width:200px}
+  .sheetin .stitle{font-family:var(--mincho);font-size:16px;margin:0 0 2px}
+  .sheetin .smeta{font-family:var(--mono);font-size:11px;color:var(--ink-soft)}
+  .sheetin .actions{display:flex;gap:10px;flex-wrap:wrap}
+  .xbtn{background:transparent;border:none;font-size:20px;color:var(--ink-soft);cursor:pointer;padding:2px 8px;line-height:1}
+
+  /* ---- toast ---- */
+  #toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);
+    font-family:var(--mono);font-size:11.5px;background:var(--ink);color:var(--paper);
+    padding:8px 14px;border-radius:3px;opacity:0;pointer-events:none;transition:opacity .18s;z-index:60}
+  #toast.on{opacity:.94}
+
+  .empty-note{font-size:12.5px;color:var(--ink-faint);padding:14px 0}
+
+  footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--grid-strong);font-size:12px;color:var(--ink-soft)}
+  footer code{font-family:var(--mono);font-size:11.5px;background:rgba(255,255,255,.8);padding:1px 4px}
+  footer a{color:var(--shu)}
+
+  @media (max-width:760px){
+    .wrap{padding:22px 12px 120px}
+    h1{font-size:22px}
+    .status{margin-left:0}
+    .lanegrid{grid-template-columns:64px repeat(7,minmax(88px,1fr));min-width:700px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">calendar / lane view</p>
+  <h1>カレンダー</h1>
+  <p class="sub" id="rangesub">—</p>
+</header>
+
+<div class="controls">
+  <button class="btn primary" id="connect">Googleに接続</button>
+  <button class="btn" id="reload" disabled>再読込</button>
+  <span class="modes" role="group" aria-label="表示切替">
+    <button data-mode="lane" aria-pressed="true">レーン</button>
+    <button data-mode="timeline" aria-pressed="false">時間軸</button>
+  </span>
+  <span class="nav">
+    <button id="prev" title="前の週">◀</button>
+    <button id="today" title="今週へ">今日</button>
+    <button id="next" title="次の週">▶</button>
+  </span>
+  <label class="toggle"><input type="checkbox" id="hideRoutine"> ルーティンを隠す</label>
+  <label class="toggle"><input type="checkbox" id="hideDone"> 済を隠す</label>
+  <span class="status mock" id="status"><span class="dot"></span><span id="statustext">モード: モックデータ</span></span>
+</div>
+
+<div class="cals" id="cals"></div>
+
+<div id="view"></div>
+
+<footer>
+  Googleカレンダーを正とし、表示だけをレーンに組み替えます。<b>済</b>にすると色を灰色にし、完了状態は
+  <code>extendedProperties.private</code> に記録します（タイトルは変更しません）。接続前はサンプルの
+  <b>モックデータ</b>で動作します。実データに繋ぐには、下のスクリプト内 <code>CONFIG.CLIENT_ID</code> に
+  GoogleのOAuthクライアントIDを設定してください。
+</footer>
+
+</div>
+
+<!-- action sheet -->
+<div class="sheet" id="sheet" aria-hidden="true">
+  <div class="sheetin">
+    <div class="info">
+      <p class="stitle" id="sheetTitle">—</p>
+      <p class="smeta" id="sheetMeta">—</p>
+    </div>
+    <div class="actions" id="sheetActions"></div>
+    <button class="xbtn" id="sheetClose" title="閉じる">×</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- Google Identity Services -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<script>
+"use strict";
+
+/* ============================================================
+   設定 — 実データに繋ぐには CLIENT_ID を入れる
+   （Google Cloud Console で作った「OAuth 2.0 クライアント ID(ウェブ)」）
+   空のあいだはモックデータで動きます。
+   ============================================================ */
+const CONFIG = {
+  CLIENT_ID: "",                                   // ← ここに貼る
+  SCOPE: "https://www.googleapis.com/auth/calendar",
+  GRAY_COLOR_ID: "8",                              // Google の「Graphite(灰)」
+  WEEKS_SHOWN: 2,
+  MAX_EVENTS: 2500
+};
+
+/* ============================================================
+   状態
+   ============================================================ */
+let TOKEN = null;                 // アクセストークン(実データ時)
+let LIVE = false;                 // 実データに接続済みか
+let tokenClient = null;
+let calendars = [];               // [{id, name, color, off}]
+let events = [];                  // 正規化済みイベント
+let weekStart = mondayOf(new Date());   // 表示中の週(最初の週)の月曜
+let hideRoutine = false, hideDone = false;
+let mode = "lane";                      // "lane" | "timeline"
+const PXH = 44;                         // 時間軸: 1時間の高さ(px)
+
+/* ============================================================
+   日付ユーティリティ（JST基準の "YYYY-MM-DD"）
+   ============================================================ */
+const WK = ["日","月","火","水","木","金","土"];
+function pad(n){ return String(n).padStart(2,"0"); }
+function ymd(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function parseYmd(s){ const [y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); }
+function mondayOf(d){
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const g = (x.getDay()+6)%7;            // 月=0 … 日=6
+  x.setDate(x.getDate()-g);
+  return x;
+}
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function md(s){ const [,m,dd]=s.split("-"); return (+m)+"/"+(+dd); }
+function wdOf(s){ return parseYmd(s).getDay(); }
+const TODAY = ymd(new Date());
+
+function weeksRange(){
+  const weeks = [];
+  for(let w=0; w<CONFIG.WEEKS_SHOWN; w++){
+    const start = addDays(weekStart, w*7);
+    const days = Array.from({length:7}, (_,i)=>ymd(addDays(start,i)));
+    weeks.push({ start, days,
+      label: "WEEK "+(w+1)+" — "+md(days[0])+" ("+WK[wdOf(days[0])]+") – "+md(days[6])+" ("+WK[wdOf(days[6])]+")" });
+  }
+  return weeks;
+}
+
+const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ============================================================
+   モックデータ（サンプルの実データを流用）
+   ============================================================ */
+function mockCalendars(){
+  return [
+    {id:"mock-shigoto", name:"仕事",         color:"#3F5A73", off:false},
+    {id:"mock-horenso", name:"報連相",       color:"#6B5B7B", off:false},
+    {id:"mock-private", name:"プライベート", color:"#5E7A5E", off:false}
+  ];
+}
+function mockEvents(){
+  // 今日を含む週の月曜を起点に、サンプルと同じ「かたち」を再現する
+  const base = mondayOf(new Date());
+  const D = n => ymd(addDays(base, n));            // n=0..13
+  const ev = [];
+  let seq = 0;
+  const push = o => ev.push(Object.assign({
+    id:"m"+(++seq), calId:o.calId, title:o.title, allDay:!!o.allDay,
+    time:o.time||"", end:o.end||"", routine:!!o.routine, done:false, doneAt:""
+  }, {}, o.date?{date:o.date}:{}));
+  const workdays = [0,1,2,3,4,7,8,9,10,11];        // 月〜金 × 2週
+  workdays.forEach(n=>{
+    push({calId:"mock-shigoto", date:D(n), time:"08:00", end:"08:30", title:"出勤打刻", routine:true});
+    push({calId:"mock-shigoto", date:D(n), time:"18:00", end:"18:30", title:"退勤打刻", routine:true});
+  });
+  push({calId:"mock-shigoto", date:D(4),  time:"09:00", title:"ﾙｰﾃｨﾝ表確認_来週の予定", routine:true});
+  push({calId:"mock-shigoto", date:D(11), time:"09:00", title:"ﾙｰﾃｨﾝ表確認_来週の予定", routine:true});
+  push({calId:"mock-shigoto", date:D(5),  allDay:true, title:"はまぎん(持株会)前月入出金の確認", routine:true});
+  push({calId:"mock-shigoto", date:D(12), time:"10:00", end:"19:45", title:"（MEK社内コンペ）", routine:false});
+
+  push({calId:"mock-horenso", date:D(4),  time:"12:00", title:"斎藤B_週報提出", routine:true});
+  push({calId:"mock-horenso", date:D(11), time:"12:00", title:"斎藤B_週報提出", routine:true});
+  push({calId:"mock-horenso", date:D(5),  allDay:true, title:"ちばぎん流山の前月末残高を高橋さんにトス", routine:true});
+  push({calId:"mock-horenso", date:D(5),  allDay:true, title:"各位_〇月度MEKグループ損益速報エクセル", routine:true});
+
+  [1,3,5,7,9,11].forEach(n=> push({calId:"mock-private", date:D(n), time:"07:45", end:"08:00", title:"TOEIC対策", routine:true}));
+  [0,2,4,6,8,10].forEach(n=> push({calId:"mock-private", date:D(n), time:"07:45", end:"08:00", title:"CIA対策", routine:true}));
+  push({calId:"mock-private", date:D(6), time:"05:30", end:"17:00", title:"勝沼G_0530OUT_須藤P橋川P", routine:false});
+  return ev;
+}
+
+/* ============================================================
+   描画
+   ============================================================ */
+const viewEl = document.getElementById("view");
+
+function calById(id){ return calendars.find(c=>c.id===id); }
+
+function visibleEvents(){
+  const onCals = new Set(calendars.filter(c=>!c.off).map(c=>c.id));
+  return events.filter(e=>{
+    if(!onCals.has(e.calId)) return false;
+    if(hideRoutine && e.routine) return false;
+    if(hideDone && e.done) return false;
+    return true;
+  });
+}
+
+function cmp(a,b){
+  const ka = (a.date)+(a.allDay?"00:00":(a.time||"00:00"));
+  const kb = (b.date)+(b.allDay?"00:00":(b.time||"00:00"));
+  return ka.localeCompare(kb);
+}
+
+function renderCals(){
+  const el = document.getElementById("cals");
+  el.innerHTML = calendars.map(c=>
+    `<span class="calchip${c.off?" off":""}" data-cal="${esc(c.id)}">
+       <span class="sw" style="background:${c.color}"></span>${esc(c.name)}</span>`).join("");
+  el.querySelectorAll(".calchip").forEach(ch=>{
+    ch.addEventListener("click",()=>{
+      const c = calById(ch.dataset.cal); c.off = !c.off; renderCals(); renderView();
+    });
+  });
+}
+
+function renderView(){
+  const weeks = weeksRange();
+  document.getElementById("rangesub").textContent =
+    md(weeks[0].days[0]) + " – " + md(weeks[weeks.length-1].days[6]) + "　"
+    + (LIVE ? "Googleカレンダーに接続中" : "モックデータ（未接続）");
+
+  viewEl.innerHTML = (mode==="timeline" ? renderTimeline(weeks) : renderLane(weeks))
+                     || `<p class="empty-note">表示できる予定がありません。</p>`;
+  viewEl.querySelectorAll(".chip,.tl-ev,.ad").forEach(el=>{
+    el.addEventListener("click",()=>openSheet(el.dataset.id));
+  });
+}
+
+function renderLane(weeks){
+  const vis = visibleEvents();
+  return weeks.map(w=>{
+    const heads = w.days.map(d=>{
+      const k = wdOf(d);
+      const cls = ["dayhead", k===0?"sun":k===6?"sat":"", d===TODAY?"today":""].join(" ");
+      return `<div class="${cls}"><span class="dnum">${+d.split("-")[2]}</span><span class="dwk">${WK[k]}</span></div>`;
+    }).join("");
+
+    const lanes = calendars.filter(c=>!c.off).map(c=>{
+      const cells = w.days.map(d=>{
+        const items = vis.filter(e=>e.calId===c.id && e.date===d).sort(cmp).map(e=>chipHtml(e,c)).join("");
+        return `<div class="cell${d===TODAY?" todaycol":""}">${items}</div>`;
+      }).join("");
+      return `<div class="lanename"><span class="swatch" style="background:${c.color}"></span>${esc(c.name)}</div>${cells}`;
+    }).join("");
+
+    return `<section class="weekblock">
+      <p class="weeklabel">${w.label}</p>
+      <div class="lanescroll"><div class="lanegrid"><div class="corner"></div>${heads}${lanes}</div></div>
+    </section>`;
+  }).join("");
+}
+
+/* ---- 時間軸: 0〜24時グリッドを日ごとに縦連結 ---- */
+function toMin(hm){ const [h,m]=hm.split(":").map(Number); return h*60+(m||0); }
+
+function renderTimeline(weeks){
+  const vis = visibleEvents();
+  const days = weeks.flatMap(w=>w.days);
+  const nowMin = (()=>{ const d=new Date(); return d.getHours()*60+d.getMinutes(); })();
+
+  return days.map(d=>{
+    const k = wdOf(d);
+    const dayItems = vis.filter(e=>e.date===d);
+    const allday = dayItems.filter(e=>e.allDay || !e.time);
+    const timed  = dayItems.filter(e=>!e.allDay && e.time).map(e=>{
+      const s = toMin(e.time);
+      let en = e.end ? toMin(e.end) : s+30;
+      if(en <= s) en = Math.min(s+30, 24*60);
+      return { e, s, en };
+    });
+
+    // 重なりを列に振り分ける
+    packColumns(timed);
+
+    const hours = Array.from({length:25}, (_,h)=>
+      `<div class="tl-hour h${h}" style="top:${h*PXH}px"><span>${h}時</span></div>`).join("");
+
+    const evs = timed.map(o=>{
+      const cal = calById(o.e.calId) || {color:"var(--ink)"};
+      const top = (o.s/60)*PXH;
+      const hgt = Math.max((o.en-o.s)/60*PXH, 16);
+      const w = 100/o.ncol, left = o.col*w;
+      const cls = ["tl-ev", o.e.routine?"routine":"", o.e.done?"done":""].join(" ");
+      const border = o.e.done ? "var(--gray)" : cal.color;
+      const label = o.e.time + (o.e.end?("–"+o.e.end):"");
+      return `<button class="${cls}" data-id="${esc(o.e.id)}"
+        style="top:${top}px;height:${hgt}px;left:calc(${left}% + 1px);width:calc(${w}% - 2px);border-color:${border}">
+        <span class="t">${label}</span><span class="ttl">${esc(o.e.title)}</span></button>`;
+    }).join("");
+
+    const nowLine = (d===TODAY)
+      ? `<div class="tl-now" style="top:${(nowMin/60)*PXH}px"></div>` : "";
+
+    const adHtml = allday.map(e=>{
+      const cal = calById(e.calId) || {color:"var(--ink)"};
+      const cls = ["ad", e.routine?"routine":"", e.done?"done":""].join(" ");
+      const border = e.done ? "var(--gray)" : cal.color;
+      return `<button class="${cls}" data-id="${esc(e.id)}" style="border-color:${border}">${esc(e.title)}</button>`;
+    }).join("");
+
+    const lblCls = ["tl-daylabel", k===0?"sun":k===6?"sat":"", d===TODAY?"today":""].join(" ");
+    return `<section class="tl-day">
+      <div class="${lblCls}"><span class="dn">${+d.split("-")[2]}</span><span class="dw">${WK[k]}曜日 · ${md(d)}</span></div>
+      ${adHtml ? `<div class="tl-allday">${adHtml}</div>` : ""}
+      <div class="tl-grid" style="height:${24*PXH}px">${hours}${nowLine}${evs}</div>
+    </section>`;
+  }).join("");
+}
+
+/* 重なる予定を列に割り当てる（col: 列番号, ncol: そのかたまりの列数） */
+function packColumns(items){
+  items.sort((a,b)=> a.s-b.s || a.en-b.en);
+  let i=0;
+  while(i<items.length){
+    const cluster=[items[i]]; let maxEnd=items[i].en, j=i+1;
+    while(j<items.length && items[j].s < maxEnd){ cluster.push(items[j]); maxEnd=Math.max(maxEnd,items[j].en); j++; }
+    const colEnds=[];
+    for(const o of cluster){
+      let c = colEnds.findIndex(end=> end<=o.s);
+      if(c===-1){ c=colEnds.length; colEnds.push(o.en); } else colEnds[c]=o.en;
+      o.col=c;
+    }
+    for(const o of cluster) o.ncol=colEnds.length;
+    i=j;
+  }
+}
+
+function chipHtml(e, cal){
+  const cls = ["chip", e.routine?"routine":"", e.allDay?"allday":"", e.done?"done":""].join(" ");
+  const border = e.done ? "var(--gray)" : cal.color;
+  const t = e.allDay ? "終日" : (e.time + (e.end?("–"+e.end):""));
+  return `<button class="${cls}" data-id="${esc(e.id)}" style="border-color:${border}">
+      <span class="seal">済</span>
+      <span class="t">${t}</span><span class="ttl">${esc(e.title)}</span>
+    </button>`;
+}
+
+/* ============================================================
+   アクションシート（済にする / 取り消す）
+   ============================================================ */
+let sheetId = null;
+function openSheet(id){
+  const e = events.find(x=>x.id===id); if(!e) return;
+  sheetId = id;
+  const cal = calById(e.calId);
+  const when = md(e.date)+" ("+WK[wdOf(e.date)]+") "+(e.allDay?"終日":(e.time+(e.end?("–"+e.end):"")));
+  document.getElementById("sheetTitle").textContent = e.title;
+  document.getElementById("sheetMeta").textContent =
+    when + " · " + (cal?cal.name:"") + (e.routine?" · 繰り返し":" · 単発")
+    + (e.done && e.doneAt ? " · 済 "+e.doneAt : "");
+  const acts = document.getElementById("sheetActions");
+  acts.innerHTML = e.done
+    ? `<button class="btn" id="act-undo">済を取り消す</button>`
+    : `<button class="btn primary" id="act-done">済にする</button>`;
+  acts.querySelector("#act-done") && acts.querySelector("#act-done").addEventListener("click",()=>markDone(id,true));
+  acts.querySelector("#act-undo") && acts.querySelector("#act-undo").addEventListener("click",()=>markDone(id,false));
+  document.getElementById("sheet").classList.add("on");
+}
+function closeSheet(){ sheetId=null; document.getElementById("sheet").classList.remove("on"); }
+document.getElementById("sheetClose").addEventListener("click", closeSheet);
+
+async function markDone(id, done){
+  const e = events.find(x=>x.id===id); if(!e) return;
+  if(LIVE){
+    try{
+      await patchDone(e, done);
+    }catch(err){
+      toast("書き込みに失敗しました: "+(err.message||err)); return;
+    }
+  }
+  e.done = done;
+  e.doneAt = done ? nowStamp() : "";
+  closeSheet(); renderView();
+  toast(done ? "済にしました（色を灰色に）" : "済を取り消しました");
+}
+
+function nowStamp(){
+  const d = new Date();
+  return d.getFullYear()+"/"+pad(d.getMonth()+1)+"/"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes());
+}
+
+/* ============================================================
+   Google カレンダー API（実データ）
+   ============================================================ */
+function initTokenClient(){
+  if(!window.google || !google.accounts || !google.accounts.oauth2) return false;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CONFIG.CLIENT_ID,
+    scope: CONFIG.SCOPE,
+    callback: (resp)=>{
+      if(resp.error){ toast("認証に失敗しました: "+resp.error); return; }
+      TOKEN = resp.access_token; LIVE = true;
+      setStatus(true);
+      document.getElementById("reload").disabled = false;
+      document.getElementById("connect").textContent = "再接続";
+      loadLive();
+    }
+  });
+  return true;
+}
+
+function connect(){
+  if(!CONFIG.CLIENT_ID){
+    toast("CLIENT_ID が未設定です（モードはモックのまま）");
+    return;
+  }
+  if(!tokenClient && !initTokenClient()){
+    toast("Google のスクリプトがまだ読み込まれていません。少し待って再度お試しください。");
+    return;
+  }
+  tokenClient.requestAccessToken({ prompt: TOKEN ? "" : "consent" });
+}
+
+async function api(path, opts){
+  const res = await fetch("https://www.googleapis.com/calendar/v3"+path, Object.assign({
+    headers: { "Authorization":"Bearer "+TOKEN, "Content-Type":"application/json" }
+  }, opts));
+  if(!res.ok){
+    const t = await res.text().catch(()=> "");
+    throw new Error(res.status+" "+t.slice(0,140));
+  }
+  return res.status===204 ? null : res.json();
+}
+
+async function loadLive(){
+  try{
+    toast("カレンダーを読み込み中…");
+    const list = await api("/users/me/calendarList");
+    calendars = (list.items||[]).map(c=>({
+      id: c.id,
+      name: c.summaryOverride || c.summary,
+      color: c.backgroundColor || "#888",
+      off: c.selected===false
+    }));
+    // 表示範囲だけ取得する
+    const weeks = weeksRange();
+    const timeMin = new Date(weeks[0].start); timeMin.setHours(0,0,0,0);
+    const timeMax = addDays(weeks[weeks.length-1].start, 7);
+    const all = [];
+    for(const c of calendars){
+      const q = new URLSearchParams({
+        timeMin: timeMin.toISOString(), timeMax: timeMax.toISOString(),
+        singleEvents:"true", orderBy:"startTime", maxResults:String(CONFIG.MAX_EVENTS)
+      });
+      let data;
+      try{ data = await api("/calendars/"+encodeURIComponent(c.id)+"/events?"+q.toString()); }
+      catch(err){ continue; }        // 読めないカレンダーは飛ばす
+      for(const it of (data.items||[])) all.push(normalize(it, c.id));
+    }
+    events = all;
+    renderCals(); renderView();
+    toast("読み込み完了（"+events.length+"件）");
+  }catch(err){
+    toast("読み込みに失敗しました: "+(err.message||err));
+  }
+}
+
+function normalize(it, calId){
+  const allDay = !!(it.start && it.start.date);
+  const startStr = allDay ? it.start.date : it.start.dateTime;
+  const endStr   = it.end ? (allDay ? it.end.date : it.end.dateTime) : "";
+  const date = allDay ? it.start.date : ymd(new Date(startStr));
+  const hm = s => { const d=new Date(s); return pad(d.getHours())+":"+pad(d.getMinutes()); };
+  const priv = (it.extendedProperties && it.extendedProperties.private) || {};
+  return {
+    id: calId+"::"+it.id,
+    gid: it.id,
+    calId,
+    title: it.summary || "(無題)",
+    allDay,
+    date,
+    time: allDay ? "" : hm(startStr),
+    end:  (!allDay && endStr) ? hm(endStr) : "",
+    routine: !!it.recurringEventId,
+    done: priv.done === "true",
+    doneAt: priv.doneAt || "",
+    prevColorId: priv.prevColorId || it.colorId || "",
+    colorId: it.colorId || ""
+  };
+}
+
+async function patchDone(e, done){
+  const path = "/calendars/"+encodeURIComponent(e.calId)+"/events/"+encodeURIComponent(e.gid);
+  let body;
+  if(done){
+    body = {
+      colorId: CONFIG.GRAY_COLOR_ID,
+      extendedProperties:{ private:{
+        done:"true",
+        doneAt:new Date().toISOString(),
+        prevColorId: e.colorId || ""     // 取り消し時に色を戻せるよう控える
+      }}
+    };
+  }else{
+    body = {
+      colorId: e.prevColorId || null,     // 元の色へ（null で既定色に戻る）
+      extendedProperties:{ private:{ done:null, doneAt:null } }
+    };
+  }
+  const updated = await api(path, { method:"PATCH", body: JSON.stringify(body) });
+  if(updated){
+    const priv = (updated.extendedProperties && updated.extendedProperties.private) || {};
+    e.colorId = updated.colorId || "";
+    e.prevColorId = priv.prevColorId || e.prevColorId;
+  }
+  return updated;
+}
+
+/* ============================================================
+   UI 配線
+   ============================================================ */
+function setStatus(live){
+  const s = document.getElementById("status");
+  s.classList.toggle("live", live); s.classList.toggle("mock", !live);
+  document.getElementById("statustext").textContent = live ? "モード: Google接続" : "モード: モックデータ";
+}
+
+function toast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("on");
+  clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.remove("on"), 1800);
+}
+
+document.querySelectorAll(".modes button").forEach(b=>{
+  b.addEventListener("click",()=>{
+    mode = b.dataset.mode;
+    document.querySelectorAll(".modes button").forEach(x=>x.setAttribute("aria-pressed", String(x===b)));
+    renderView();
+  });
+});
+document.getElementById("connect").addEventListener("click", connect);
+document.getElementById("reload").addEventListener("click", ()=>{ if(LIVE) loadLive(); });
+document.getElementById("prev").addEventListener("click", ()=>{ weekStart = addDays(weekStart, -7*CONFIG.WEEKS_SHOWN); refresh(); });
+document.getElementById("next").addEventListener("click", ()=>{ weekStart = addDays(weekStart,  7*CONFIG.WEEKS_SHOWN); refresh(); });
+document.getElementById("today").addEventListener("click", ()=>{ weekStart = mondayOf(new Date()); refresh(); });
+document.getElementById("hideRoutine").addEventListener("change", e=>{ hideRoutine=e.target.checked; renderView(); });
+document.getElementById("hideDone").addEventListener("change", e=>{ hideDone=e.target.checked; renderView(); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeSheet(); });
+
+function refresh(){ if(LIVE) loadLive(); else renderView(); }
+
+/* ============================================================
+   起動
+   ============================================================ */
+function boot(){
+  calendars = mockCalendars();
+  events = mockEvents();
+  setStatus(false);
+  renderCals();
+  renderView();
+}
+boot();
+</script>
+</body>
+</html>
