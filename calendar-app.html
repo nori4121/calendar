@@ -303,8 +303,7 @@
     <button id="today" title="今日へ">今日</button>
     <button id="next" title="次へ">▶</button>
   </span>
-  <label class="toggle"><input type="checkbox" id="hideRoutine"> ルーティンを隠す</label>
-  <label class="toggle"><input type="checkbox" id="hideDone"> 済を隠す</label>
+  <label class="toggle"><input type="checkbox" id="showDone"> 済を表示する</label>
   <span class="status mock" id="status"><span class="dot"></span><span id="statustext">モード: モックデータ</span></span>
 </div>
 
@@ -362,7 +361,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b27";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b28";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -373,7 +372,7 @@ let tokenClient = null;
 let calendars = [];               // [{id, name, color, off}]
 let events = [];                  // 正規化済みイベント
 let anchor = new Date();                // 表示の基準日（既定は今日）
-let hideRoutine = false, hideDone = false;
+let showDone = false;                   // 済は既定で非表示。チェックで表示する
 let mode = "scroll";                    // "scroll"(一枚もの) | "day3"(3日)
 let pendingScrollNow = false;           // 次の描画後に現在時刻へ自動スクロールするか
 const PXH = 60;                         // 時間軸: 1時間の高さ(px)
@@ -465,8 +464,7 @@ function visibleEvents(){
   const onCals = new Set(calendars.filter(c=>!c.off).map(c=>c.id));
   return events.filter(e=>{
     if(!onCals.has(e.calId)) return false;
-    if(hideRoutine && e.routine) return false;
-    if(hideDone && e.done) return false;
+    if(!showDone && e.done) return false;   // 済は既定で隠す（チェック時のみ表示）
     return true;
   });
 }
@@ -910,8 +908,7 @@ document.getElementById("reload").addEventListener("click", ()=>{ if(LIVE) loadL
 document.getElementById("prev").addEventListener("click", ()=>{ anchor = addDays(anchor, mode==="day3" ? -1 : -7*CONFIG.WEEKS_SHOWN); refresh(); });
 document.getElementById("next").addEventListener("click", ()=>{ anchor = addDays(anchor, mode==="day3" ?  1 :  7*CONFIG.WEEKS_SHOWN); refresh(); });
 document.getElementById("today").addEventListener("click", ()=>{ anchor = new Date(); pendingScrollNow = true; refresh(); });
-document.getElementById("hideRoutine").addEventListener("change", e=>{ hideRoutine=e.target.checked; renderView(); });
-document.getElementById("hideDone").addEventListener("change", e=>{ hideDone=e.target.checked; renderView(); });
+document.getElementById("showDone").addEventListener("change", e=>{ showDone=e.target.checked; renderView(); });
 document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeSheet(); });
 
 function refresh(){ if(LIVE) loadLive(); else renderView(); }
