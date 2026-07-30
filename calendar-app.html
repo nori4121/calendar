@@ -193,6 +193,14 @@
 
   .tl-now{position:absolute;left:0;right:0;height:2px;background:var(--shu);z-index:7;pointer-events:none}
   .tl-now::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--shu)}
+  /* 赤線に添える日付ラベル（時刻の目盛りのあたりに赤文字2段） */
+  .tl-nowlab{
+    position:absolute;transform:translateY(-50%);z-index:8;pointer-events:none;
+    font-family:var(--mono);font-size:10px;line-height:1.15;font-weight:600;
+    color:var(--shu);text-align:right
+  }
+  .tl-grid > .tl-nowlab{left:-54px;width:48px}      /* スクロール：時刻の目盛り位置 */
+  .d3gutter > .tl-nowlab{right:5px}                  /* 3日：左の時刻ガター */
 
   /* ---- 3-day view (3 columns, shared time axis) ---- */
   .d3{--gut:52px}
@@ -326,7 +334,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b12";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b13";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -476,6 +484,11 @@ function renderView(){
    ============================================================ */
 function toMin(hm){ const [h,m]=hm.split(":").map(Number); return h*60+(m||0); }
 function nowMinutes(){ const d=new Date(); return d.getHours()*60+d.getMinutes(); }
+// 赤線に添える日付ラベル（2段：日付 / AM・PM）
+function nowLabel(){
+  const d = new Date();
+  return (d.getMonth()+1) + "/" + d.getDate() + "<br>" + (d.getHours() < 12 ? "AM" : "PM");
+}
 
 /* その日の時刻付き予定を、重なりを列に振り分けて返す */
 function timedOf(d, vis){
@@ -526,7 +539,10 @@ function renderScroll(days){
   return `<div class="scrollwrap">` + days.map(d=>{
     const k = wdOf(d);
     const evs = timedOf(d,vis).map(evBtnHtml).join("");
-    const nowLine = (d===TODAY) ? `<div class="tl-now" style="top:${(nm/60)*PXH}px"></div>` : "";
+    const nowTop = (nm/60)*PXH;
+    const nowLine = (d===TODAY)
+      ? `<div class="tl-now" style="top:${nowTop}px"></div><div class="tl-nowlab" style="top:${nowTop}px">${nowLabel()}</div>`
+      : "";
     const ad = allDayBtns(d,vis);
     const lblCls = ["tl-daylabel", k===0?"sun":k===6?"sat":"", d===TODAY?"today":""].join(" ");
     return `<section class="tl-day">
@@ -549,11 +565,13 @@ function renderDay3(days){
   }).join("");
   const hasAd = days.some(d=>vis.some(e=>e.date===d && (e.allDay || !e.time)));
   const adRow = days.map(d=>`<div class="d3adcell">${allDayBtns(d,vis)}</div>`).join("");
-  const gutter = Array.from({length:25}, (_,h)=>`<div class="d3hr" style="top:${h*PXH}px">${h}時</div>`).join("");
+  const nowTop = (nm/60)*PXH;
+  const gutter = Array.from({length:25}, (_,h)=>`<div class="d3hr" style="top:${h*PXH}px">${h}時</div>`).join("")
+    + (days.indexOf(TODAY) >= 0 ? `<div class="tl-nowlab" style="top:${nowTop}px">${nowLabel()}</div>` : "");
   const cols = days.map(d=>{
     const lines = Array.from({length:25}, (_,h)=>`<div class="d3line h${h}" style="top:${h*PXH}px"></div>`).join("");
     const evs = timedOf(d,vis).map(evBtnHtml).join("");
-    const nowLine = (d===TODAY) ? `<div class="tl-now" style="top:${(nm/60)*PXH}px"></div>` : "";
+    const nowLine = (d===TODAY) ? `<div class="tl-now" style="top:${nowTop}px"></div>` : "";
     return `<div class="d3col${d===TODAY?" today":""}" style="height:${H}px">${lines}${nowLine}${evs}</div>`;
   }).join("");
   return `<div class="d3">
@@ -822,7 +840,9 @@ function tickNow(){
   const today = ymd(new Date());
   if(today !== TODAY){ TODAY = today; renderView(); return; }   // 日付をまたいだら描き直す
   const nm = nowMinutes();
-  document.querySelectorAll(".tl-now").forEach(el=> el.style.top = ((nm/60)*PXH) + "px");
+  const top = ((nm/60)*PXH) + "px";
+  document.querySelectorAll(".tl-now").forEach(el=> el.style.top = top);
+  document.querySelectorAll(".tl-nowlab").forEach(el=>{ el.style.top = top; el.innerHTML = nowLabel(); });
   updateNowBtn();
 }
 setInterval(tickNow, 30000);   // 30秒ごとに位置を更新
