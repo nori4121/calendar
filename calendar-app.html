@@ -126,6 +126,16 @@
     display:flex;align-items:center;justify-content:center;line-height:1
   }
 
+  /* ---- 上部の一言スペース（備忘録・座右の銘） ---- */
+  .banner{max-width:640px;margin:14px 0 6px}
+  .bannertext{
+    font-family:var(--mincho);font-size:15px;line-height:1.75;color:var(--ink);
+    background:#FBF3D0;border-left:3px solid #E8C24A;border-radius:2px;
+    padding:11px 15px;outline:none;white-space:pre-wrap;word-break:break-word;min-height:1.75em
+  }
+  .bannertext:focus{box-shadow:inset 0 0 0 2px rgba(232,194,74,.65)}
+  .bannertext:empty::before{content:attr(data-ph);color:var(--ink-faint)}
+
   /* ---- mode switch ---- */
   .modes{display:inline-flex;border:1px solid var(--ink)}
   .modes button{font-family:var(--gothic);font-size:13px;background:transparent;border:none;
@@ -289,6 +299,11 @@
 
 <div class="cals" id="cals"></div>
 
+<div class="banner">
+  <div class="bannertext" id="bannerText" contenteditable="true"
+       data-ph="タップして一言を（備忘録・座右の銘など）"></div>
+</div>
+
 <div id="view"></div>
 
 <footer>
@@ -336,7 +351,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b17";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b18";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -968,11 +983,20 @@ function installManifest(){
   document.head.appendChild(al);
 }
 
+/* ---- 上部の一言スペース：入力を端末に保存して次回も残す ---- */
+function initBanner(){
+  const el = document.getElementById("bannerText");
+  if(!el) return;
+  try{ el.textContent = localStorage.getItem("cal_banner") || ""; }catch(e){}
+  el.addEventListener("input", ()=>{ try{ localStorage.setItem("cal_banner", el.innerText.trim()==="" ? "" : el.innerText); }catch(e){} });
+}
+
 /* ============================================================
    起動
    ============================================================ */
 function boot(){
   installManifest();
+  initBanner();
   calendars = mockCalendars();
   events = mockEvents();
   setStatus(false);
