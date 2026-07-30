@@ -157,14 +157,19 @@
   .tl-daylabel.sun .dn,.tl-daylabel.sun .dw{color:var(--shu)}
   .tl-daylabel.sat .dn,.tl-daylabel.sat .dw{color:#3F5A73}
   .tl-daylabel.today .dn{background:var(--shu);color:#fff;border-radius:999px;padding:2px 9px}
-  .tl-allday{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 8px 56px}
+  /* 終日ゾーン：左に「終日」ラベル＋横いっぱいのバー＋下に区切り線（時間軸と切り離す） */
+  .tl-allday{position:relative;margin:0 0 6px 56px;padding:2px 0 7px;
+    border-bottom:1px solid var(--grid-strong);display:flex;flex-direction:column;gap:3px}
+  .tl-adlabel{position:absolute;left:-54px;top:3px;width:48px;text-align:right;
+    font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
   .ad{
-    font-size:10.5px;line-height:1.3;padding:3px 7px;background:#fff;color:var(--ink);
-    border-left:2.5px solid var(--ink);border-top:none;cursor:pointer;max-width:100%;
+    display:block;width:100%;box-sizing:border-box;
+    font-size:11px;line-height:1.35;padding:4px 9px;background:#fff;color:var(--ink);
+    border-left:4px solid var(--ink);border-radius:2px;cursor:pointer;
     font-family:inherit;text-align:left
   }
   .ad.routine{border-left-style:dotted}
-  .ad.done{border-left-color:var(--gray)!important;background:#F1F1EE;color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--gray)}
+  .ad.done{border-left-color:var(--gray)!important;background:#F1F1EE!important;color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--gray)}
   .tl-grid{position:relative;margin-left:56px;border-left:1px solid var(--grid-strong)}
   .tl-hour{position:absolute;left:0;right:0;border-top:1px solid var(--grid)}
   .tl-hour.h6,.tl-hour.h12,.tl-hour.h18{border-top-color:var(--grid-strong)}
@@ -229,6 +234,7 @@
   .d3dh.today{background:var(--ink)}
   .d3dh.today .d3dn,.d3dh.today .d3dw{color:var(--paper)}
   .d3adrow{border-bottom:1px solid var(--grid-strong)}
+  .d3adlabel{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-align:right;padding:6px 6px 0;align-self:start}
   .d3adcell{border-left:1px solid var(--grid);padding:3px;display:flex;flex-direction:column;gap:3px;min-height:22px}
   .d3gutter{position:relative}
   .d3hr{position:absolute;right:6px;transform:translateY(-50%);font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
@@ -354,7 +360,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b23";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b24";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -568,7 +574,7 @@ function renderScroll(days){
     const lblCls = ["tl-daylabel", k===0?"sun":k===6?"sat":"", d===TODAY?"today":""].join(" ");
     return `<section class="tl-day">
       <div class="${lblCls}"><span class="dn">${+d.split("-")[2]}</span><span class="dw">${WK[k]}曜日 · ${md(d)}</span></div>
-      ${ad ? `<div class="tl-allday">${ad}</div>` : ""}
+      ${ad ? `<div class="tl-allday"><span class="tl-adlabel">終日</span>${ad}</div>` : ""}
       <div class="tl-grid" style="height:${24*PXH}px">${hoursCol()}${nowLine}${evs}</div>
     </section>`;
   }).join("") + `</div>`;
@@ -597,7 +603,7 @@ function renderDay3(days){
   }).join("");
   return `<div class="d3">
     <div class="d3head"><div></div>${heads}</div>
-    ${hasAd ? `<div class="d3adrow"><div></div>${adRow}</div>` : ""}
+    ${hasAd ? `<div class="d3adrow"><div class="d3adlabel">終日</div>${adRow}</div>` : ""}
     <div class="d3body"><div class="d3gutter" style="height:${H}px">${gutter}</div>${cols}</div>
   </div>`;
 }
