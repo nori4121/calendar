@@ -150,15 +150,20 @@
   .tl-hour span{position:absolute;left:-54px;top:-7px;width:48px;text-align:right;
     font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
   .tl-ev{
-    position:absolute;overflow:hidden;border-left:3px solid var(--ink);background:#fff;
-    font-size:10.5px;line-height:1.22;padding:2px 5px;cursor:pointer;border-radius:2px;
-    box-shadow:0 1px 2px -1px rgba(0,0,0,.18);text-align:left;font-family:inherit;color:var(--ink)
+    position:absolute;overflow:hidden;border-left:4px solid var(--ink);background:#fff;
+    font-size:12px;line-height:1.3;padding:3px 7px;cursor:pointer;border-radius:3px;
+    box-shadow:0 1px 2px -1px rgba(0,0,0,.22);text-align:left;font-family:inherit;color:var(--ink)
   }
-  .tl-ev:hover{z-index:6;box-shadow:0 2px 6px -1px rgba(0,0,0,.28)}
+  .tl-ev:hover{z-index:6;box-shadow:0 2px 7px -1px rgba(0,0,0,.3)}
   .tl-ev:focus-visible{outline:2px solid var(--shu);outline-offset:1px;z-index:6}
-  .tl-ev .t{font-family:var(--mono);font-size:9px;color:var(--ink-faint);display:block}
-  .tl-ev.routine{opacity:.62;border-left-style:dotted}
-  .tl-ev.done{border-left-color:var(--gray)!important;background:#F1F1EE;color:var(--ink-faint)}
+  .tl-ev .t{font-family:var(--mono);font-size:10px;color:var(--ink-soft);display:block}
+  .tl-ev .ttl{font-weight:500}
+  /* 背の低い予定は時刻＋題名を1行にまとめて、切れないようにする */
+  .tl-ev.short{display:flex;align-items:baseline;gap:5px;white-space:nowrap}
+  .tl-ev.short .t{display:inline;flex:0 0 auto}
+  .tl-ev.short .ttl{min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .tl-ev.routine{opacity:.72;border-left-style:dotted}
+  .tl-ev.done{border-left-color:var(--gray)!important;background:#F1F1EE!important;color:var(--ink-faint)}
   .tl-ev.done .ttl{text-decoration:line-through;text-decoration-thickness:1px;text-decoration-color:var(--gray)}
   .tl-ev.done::after{content:"済";position:absolute;top:1px;right:3px;font-family:var(--mincho);
     font-size:10px;color:var(--shu);font-weight:600}
@@ -293,7 +298,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b3";   // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b4";   // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -306,7 +311,7 @@ let events = [];                  // 正規化済みイベント
 let anchor = new Date();                // 表示の基準日（既定は今日）
 let hideRoutine = false, hideDone = false;
 let mode = "scroll";                    // "scroll"(一枚もの) | "day3"(3日)
-const PXH = 44;                         // 時間軸: 1時間の高さ(px)
+const PXH = 60;                         // 時間軸: 1時間の高さ(px)
 
 /* ============================================================
    日付ユーティリティ（JST基準の "YYYY-MM-DD"）
@@ -451,13 +456,16 @@ function timedOf(d, vis){
 /* 1件の予定ブロック（絶対配置）。列は position:relative な入れ物側で受ける */
 function evBtnHtml(o){
   const cal = calById(o.e.calId) || {color:"var(--ink)"};
-  const top = (o.s/60)*PXH, hgt = Math.max((o.en-o.s)/60*PXH, 16);
+  const top = (o.s/60)*PXH, hgt = Math.max((o.en-o.s)/60*PXH, 20);
   const w = 100/o.ncol, left = o.col*w;
-  const cls = ["tl-ev", o.e.routine?"routine":"", o.e.done?"done":""].join(" ");
+  const short = hgt < 40;                 // 背が低い枠は1行にまとめる
+  const cls = ["tl-ev", short?"short":"", o.e.routine?"routine":"", o.e.done?"done":""].join(" ");
   const border = o.e.done ? "var(--gray)" : cal.color;
+  // 済でなければカレンダー色の淡い塗りで濃くする（背景に埋もれないように）
+  const bg = o.e.done ? "" : `background:color-mix(in srgb, ${cal.color} 20%, #fff);`;
   const label = o.e.time + (o.e.end?("–"+o.e.end):"");
   return `<button class="${cls}" data-id="${esc(o.e.id)}"
-    style="top:${top}px;height:${hgt}px;left:calc(${left}% + 1px);width:calc(${w}% - 2px);border-color:${border}">
+    style="top:${top}px;height:${hgt}px;left:calc(${left}% + 1px);width:calc(${w}% - 2px);border-color:${border};${bg}">
     <span class="t">${label}</span><span class="ttl">${esc(o.e.title)}</span></button>`;
 }
 /* その日の終日予定のボタン群 */
@@ -466,7 +474,8 @@ function allDayBtns(d, vis){
     const cal = calById(e.calId) || {color:"var(--ink)"};
     const cls = ["ad", e.routine?"routine":"", e.done?"done":""].join(" ");
     const border = e.done ? "var(--gray)" : cal.color;
-    return `<button class="${cls}" data-id="${esc(e.id)}" style="border-color:${border}">${esc(e.title)}</button>`;
+    const bg = e.done ? "" : `background:color-mix(in srgb, ${cal.color} 20%, #fff);`;
+    return `<button class="${cls}" data-id="${esc(e.id)}" style="border-color:${border};${bg}">${esc(e.title)}</button>`;
   }).join("");
 }
 const hoursCol = () => Array.from({length:25}, (_,h)=>
