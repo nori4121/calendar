@@ -244,21 +244,23 @@
   .d3line{position:absolute;left:0;right:0;border-top:1px solid var(--grid)}
   .d3line.h6,.d3line.h12,.d3line.h18{border-top-color:var(--grid-strong)}
 
-  /* ---- action sheet (bottom) ---- */
+  /* ---- action popover（タップした予定のすぐ近くに出す） ---- */
+  .sheetbd{position:fixed;inset:0;z-index:44;display:none}   /* クリックで閉じる透明の受け皿 */
+  .sheetbd.on{display:block}
   .sheet{
-    position:fixed;left:0;right:0;bottom:0;z-index:40;
-    background:var(--paper);border-top:2px solid var(--ink);
-    box-shadow:0 -8px 24px -18px rgba(0,0,0,.4);
-    transform:translateY(110%);transition:transform .24s cubic-bezier(.2,.8,.25,1)
+    position:fixed;top:0;left:0;z-index:45;display:none;
+    width:270px;max-width:calc(100vw - 20px);
+    background:#fff;border:1px solid var(--ink);border-radius:6px;
+    box-shadow:0 10px 28px -8px rgba(0,0,0,.45)
   }
-  .sheet.on{transform:translateY(0)}
-  .sheetin{max-width:1180px;margin:0 auto;padding:16px 20px calc(16px + env(safe-area-inset-bottom));
-    display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-  .sheetin .info{flex:1;min-width:200px}
-  .sheetin .stitle{font-family:var(--mincho);font-size:16px;margin:0 0 2px}
-  .sheetin .smeta{font-family:var(--mono);font-size:11px;color:var(--ink-soft)}
-  .sheetin .actions{display:flex;gap:10px;flex-wrap:wrap}
-  .xbtn{background:transparent;border:none;font-size:20px;color:var(--ink-soft);cursor:pointer;padding:2px 8px;line-height:1}
+  .sheet.on{display:block}
+  .sheetin{position:relative;padding:11px 13px 12px}
+  .sheetin .info{margin-bottom:10px;padding-right:20px}
+  .sheetin .stitle{font-family:var(--gothic);font-weight:600;font-size:14px;line-height:1.4;margin:0 0 3px}
+  .sheetin .smeta{font-family:var(--mono);font-size:10.5px;color:var(--ink-soft);line-height:1.55}
+  .sheetin .actions{display:flex;gap:8px;flex-wrap:wrap}
+  .sheetin .btn{padding:7px 12px;font-size:12.5px}
+  .xbtn{position:absolute;top:4px;right:5px;background:transparent;border:none;font-size:18px;color:var(--ink-soft);cursor:pointer;padding:2px 6px;line-height:1}
 
   /* ---- toast ---- */
   #toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);
@@ -325,6 +327,7 @@
 </div>
 
 <!-- action sheet -->
+<div class="sheetbd" id="sheetBackdrop"></div>
 <div class="sheet" id="sheet" aria-hidden="true">
   <div class="sheetin">
     <div class="info">
@@ -360,7 +363,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b31";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b32";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -495,7 +498,7 @@ function renderView(){
   viewEl.innerHTML = (mode==="day3" ? renderDay3(days) : renderScroll(days))
                      || `<p class="empty-note">表示できる予定がありません。</p>`;
   viewEl.querySelectorAll(".tl-ev,.ad").forEach(el=>{
-    el.addEventListener("click",()=>openSheet(el.dataset.id));
+    el.addEventListener("click",()=>openSheet(el.dataset.id, el));
   });
   updateNowBtn();                        // まず確実に表示（rAF抑制時の保険）
   requestAnimationFrame(()=>{
@@ -642,7 +645,7 @@ function chipHtml(e, cal){
    アクションシート（済にする / 取り消す）
    ============================================================ */
 let sheetId = null;
-function openSheet(id){
+function openSheet(id, anchorEl){
   const e = events.find(x=>x.id===id); if(!e) return;
   sheetId = id;
   const cal = calById(e.calId);
@@ -665,10 +668,32 @@ function openSheet(id){
   acts.innerHTML = doneBtn + openBtn;
   acts.querySelector("#act-done") && acts.querySelector("#act-done").addEventListener("click",()=>markDone(id,true));
   acts.querySelector("#act-undo") && acts.querySelector("#act-undo").addEventListener("click",()=>markDone(id,false));
-  document.getElementById("sheet").classList.add("on");
+  const sheet = document.getElementById("sheet");
+  sheet.classList.add("on");
+  document.getElementById("sheetBackdrop").classList.add("on");
+  positionSheet(anchorEl);                // タップした予定のすぐ近くへ
 }
-function closeSheet(){ sheetId=null; document.getElementById("sheet").classList.remove("on"); }
+/* ポップオーバーを予定の近くに配置（下に入らなければ上へ、画面端でクランプ） */
+function positionSheet(anchorEl){
+  const sheet = document.getElementById("sheet");
+  const sw = sheet.offsetWidth, sh = sheet.offsetHeight, gap = 6, pad = 8;
+  const r = anchorEl ? anchorEl.getBoundingClientRect()
+                     : { top:window.innerHeight/2, bottom:window.innerHeight/2, left:window.innerWidth/2 };
+  let top = r.bottom + gap;
+  if(top + sh > window.innerHeight - pad) top = r.top - sh - gap;   // 下に入らなければ上に
+  top = Math.max(pad, Math.min(top, window.innerHeight - sh - pad));
+  let left = Math.max(pad, Math.min(r.left, window.innerWidth - sw - pad));
+  sheet.style.top = top + "px";
+  sheet.style.left = left + "px";
+}
+function closeSheet(){
+  sheetId = null;
+  document.getElementById("sheet").classList.remove("on");
+  document.getElementById("sheetBackdrop").classList.remove("on");
+}
 document.getElementById("sheetClose").addEventListener("click", closeSheet);
+document.getElementById("sheetBackdrop").addEventListener("click", closeSheet);
+window.addEventListener("scroll", ()=>{ if(sheetId) closeSheet(); }, { passive:true });
 
 async function markDone(id, done){
   const e = events.find(x=>x.id===id); if(!e) return;
