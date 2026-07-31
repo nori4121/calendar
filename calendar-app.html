@@ -246,6 +246,13 @@
 
   /* ---- タスク（タグ別グループ俯瞰） ---- */
   .tasks{max-width:640px}
+  .tk-add{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 14px;
+    padding:9px 10px;border:1px solid var(--grid-strong);border-radius:5px;background:#fff}
+  .tk-add select,.tk-add input{font-family:var(--gothic);font-size:12.5px;padding:6px 8px;
+    border:1px solid var(--grid-strong);border-radius:3px;background:#fff;color:var(--ink)}
+  .tk-add #tkAddTitle{flex:1;min-width:120px;font-size:13px}
+  .tk-add .btn{padding:6px 12px;font-size:12.5px}
+  .tk-add [disabled]{opacity:.5}
   .tk-total{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin:0 0 12px}
   .tk-group{margin:0 0 18px}
   .tk-tag{display:flex;align-items:baseline;gap:8px;margin:0 0 6px;padding:0 0 5px;
@@ -412,7 +419,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b35";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b36";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -548,9 +555,18 @@ function mdFromDue(due){ const [,m,d] = due.slice(0,10).split("-"); return (+m)+
 function renderTasks(){
   if(!LIVE) return `<p class="empty-note">Googleに接続するとタスクが表示されます。</p>`;
   if(taskData === null){ loadTasks(); return `<p class="empty-note">タスクを読み込み中…</p>`; }
-  if(!taskData.length) return `<p class="empty-note">タスクリストがありません。Google ToDo でリストを作ると出てきます。</p>`;
+  const has = taskData.length > 0, dis = has ? "" : " disabled";
+  const opts = taskData.map(g=>`<option value="${esc(g.list.id)}">${esc(g.list.title)}</option>`).join("");
+  const addBar = `<div class="tk-add">
+    <select id="tkAddList"${dis}>${opts || `<option>（タグ未作成）</option>`}</select>
+    <input id="tkAddTitle" placeholder="タスクを追加…"${dis}>
+    <input id="tkAddDue" type="date" title="期日（任意）"${dis}>
+    <button id="tkAddBtn" class="btn primary"${dis}>＋タスク</button>
+    <button id="tkNewList" class="btn">＋新しいタグ</button>
+  </div>`;
+  if(!has) return `<div class="tasks">${addBar}<p class="empty-note">タグ（リスト）がまだありません。「＋新しいタグ」で作れます。</p></div>`;
   const total = taskData.reduce((n,g)=>n+g.tasks.length, 0);
-  return `<div class="tasks"><p class="tk-total">未完了 ${total}件 / ${taskData.length}タグ</p>`
+  return `<div class="tasks">${addBar}<p class="tk-total">未完了 ${total}件 / ${taskData.length}タグ</p>`
     + taskData.map(g=>{
         const items = g.tasks.length ? g.tasks.map(t=>{
           const sub = t.parent ? " tk-sub" : "";
@@ -568,6 +584,45 @@ function renderTasks(){
     + `</div>`;
 }
 
+function tkWire(){
+  const add = document.getElementById("tkAddBtn");
+  if(add) add.addEventListener("click", addTask);
+  const nl = document.getElementById("tkNewList");
+  if(nl) nl.addEventListener("click", addTagList);
+  const title = document.getElementById("tkAddTitle");
+  if(title) title.addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.isComposing){ e.preventDefault(); addTask(); } });
+}
+async function addTask(){
+  const listId = (document.getElementById("tkAddList")||{}).value;
+  const titleEl = document.getElementById("tkAddTitle");
+  const dueEl = document.getElementById("tkAddDue");
+  const title = (titleEl.value||"").trim();
+  if(!listId){ toast("先にタグ（リスト）を作ってください"); return; }
+  if(!title){ titleEl.focus(); return; }
+  const body = { title };
+  if(dueEl && dueEl.value) body.due = dueEl.value + "T00:00:00.000Z";   // Tasksは日付だけ保存
+  try{
+    const created = await apiTasks("/lists/"+encodeURIComponent(listId)+"/tasks", { method:"POST", body: JSON.stringify(body) });
+    const g = taskData.find(x=>x.list.id===listId);
+    if(g && created) g.tasks.unshift(created);            // 新規は先頭に入る
+    renderView();
+    const s = document.getElementById("tkAddList"); if(s) s.value = listId;   // 同じタグを維持
+    const t = document.getElementById("tkAddTitle"); if(t) t.focus();
+    toast("タスクを追加しました");
+  }catch(err){ toast("追加に失敗: "+(err.message||err)); }
+}
+async function addTagList(){
+  const name = prompt("新しいタグ（リスト）の名前");
+  if(!name || !name.trim()) return;
+  try{
+    const created = await apiTasks("/users/@me/lists", { method:"POST", body: JSON.stringify({ title:name.trim() }) });
+    if(created) taskData.push({ list:{ id:created.id, title:created.title }, tasks:[] });
+    renderView();
+    const s = document.getElementById("tkAddList"); if(s && created) s.value = created.id;
+    toast("タグを作成しました");
+  }catch(err){ toast("タグ作成に失敗: "+(err.message||err)); }
+}
+
 function renderView(){
   const days = daysToShow();
   document.getElementById("rangesub").textContent =
@@ -576,6 +631,7 @@ function renderView(){
 
   if(mode==="tasks"){
     viewEl.innerHTML = renderTasks();
+    tkWire();
   }else if(mode==="matrix"){
     viewEl.innerHTML = renderMatrix(days);
     mxWire();
