@@ -397,7 +397,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b33";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b34";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -657,9 +657,11 @@ function renderDay3(days){
 }
 
 /* ---- アイゼンハワー・マトリクス ---- */
+const MATRIX_DEFAULT_CALS = ["報連相","仕事"];   // 既定でチェックを入れるカレンダー名
 function matrixCalSet(){
   if(matrixCals) return new Set(matrixCals);            // ユーザー選択があればそれ
-  return new Set(calendars.filter(c=>!c.off).map(c=>c.id));  // 既定は表示中の全部
+  // 既定は「報連相・仕事」だけ（該当が無ければ空。あとはチェックで足す）
+  return new Set(calendars.filter(c=> MATRIX_DEFAULT_CALS.some(n=>c.name.indexOf(n)>=0)).map(c=>c.id));
 }
 function mxCardHtml(e, pos){
   const cal = calById(e.calId) || {color:"var(--ink)"};
