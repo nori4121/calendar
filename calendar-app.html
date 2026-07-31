@@ -410,9 +410,7 @@
   </div>
   <div class="tke-actions">
     <button id="tkEditSave" class="btn primary">保存</button>
-    <button id="tkEditDone" class="btn">完了にする</button>
     <button id="tkEditDel" class="btn">削除</button>
-    <button id="tkEditClose" class="btn">閉じる</button>
   </div>
 </div>
 
@@ -452,7 +450,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b37";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b38";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -695,12 +693,10 @@ async function deleteTask(){
     closeTaskEdit(); renderView(); toast("削除しました");
   }catch(err){ toast("削除に失敗: "+(err.message||err)); }
 }
-document.getElementById("tkEditClose").addEventListener("click", closeTaskEdit);
-document.getElementById("tkEditBd").addEventListener("click", closeTaskEdit);
+document.getElementById("tkEditBd").addEventListener("click", closeTaskEdit);  // 背景クリックで閉じる
 document.getElementById("tkEditSave").addEventListener("click", saveTaskEdit);
 document.getElementById("tkEditDel").addEventListener("click", deleteTask);
-document.getElementById("tkEditDone").addEventListener("click", ()=>{ if(tkEditRef){ const r=tkEditRef; closeTaskEdit(); completeTask(r.listId, r.taskId); } });
-document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeTaskEdit(); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeTaskEdit(); });  // Escで閉じる
 async function addTask(){
   const listId = (document.getElementById("tkAddList")||{}).value;
   const titleEl = document.getElementById("tkAddTitle");
