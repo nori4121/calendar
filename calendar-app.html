@@ -304,11 +304,15 @@
   .mx-quad.q4{background:rgba(0,0,0,.03)}
   .mx-xaxis{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--ink-soft);padding:4px 2px 0}
   .mx-card{
+    display:flex;align-items:center;gap:6px;
     font-family:var(--gothic);text-align:left;cursor:grab;border:1px solid var(--ink);border-left-width:4px;border-radius:3px;
-    padding:4px 7px;font-size:11px;line-height:1.3;box-shadow:0 1px 3px -1px rgba(0,0,0,.3);color:var(--ink);max-width:150px
+    padding:4px 7px;font-size:11px;line-height:1.3;box-shadow:0 1px 3px -1px rgba(0,0,0,.3);color:var(--ink);max-width:160px
   }
+  .mx-card .mx-check{flex:0 0 auto;width:14px;height:14px;border:1.5px solid var(--ink-soft);border-radius:50%;cursor:pointer}
+  .mx-card .mx-check:hover{border-color:var(--shu);background:radial-gradient(circle,var(--shu) 40%,transparent 42%)}
+  .mx-card .mx-body{display:flex;flex-direction:column;min-width:0}
   .mx-card .mx-when{display:block;font-family:var(--mono);font-size:9px;color:var(--ink-faint)}
-  .mx-card .mx-ttl{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:136px}
+  .mx-card .mx-ttl{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:128px}
   .mx-card.placed{position:absolute;transform:translate(-50%,-50%);z-index:2}
   .mx-card.mx-drag{opacity:.92;cursor:grabbing}
   .mx-tray{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;margin:12px 0 0;padding:10px;
@@ -450,7 +454,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b38";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b39";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -464,8 +468,10 @@ let anchor = new Date();                // 表示の基準日（既定は今日�
 let showDone = false;                   // 済は既定で非表示。チェックで表示する
 let matrixPos = {};                     // マトリクス配置 eventId -> {x,y}(0..1)
 try{ matrixPos = JSON.parse(localStorage.getItem("cal_matrixpos")||"{}") || {}; }catch(e){}
-let matrixCals = null;                   // マトリクスに載せるカレンダーID(Set)。null=既定(表示中の全部)
+let matrixCals = null;                   // (旧) 未使用
 try{ const a=JSON.parse(localStorage.getItem("cal_matrixcals")||"null"); if(Array.isArray(a)) matrixCals=new Set(a); }catch(e){}
+let matrixTags = null;                    // マトリクスに載せるタグ(Tasksリスト)ID(Set)。null=全タグ
+try{ const a=JSON.parse(localStorage.getItem("cal_matrixtags")||"null"); if(Array.isArray(a)) matrixTags=new Set(a); }catch(e){}
 let mode = "scroll";                    // "scroll"(一枚もの) | "day3"(3日)
 let pendingScrollNow = false;           // 次の描画後に現在時刻へ自動スクロールするか
 const PXH = 60;                         // 時間軸: 1時間の高さ(px)
@@ -635,6 +641,7 @@ async function completeTask(listId, id){
     await apiTasks("/lists/"+encodeURIComponent(listId)+"/tasks/"+encodeURIComponent(id),
       { method:"PATCH", body: JSON.stringify({ status:"completed" }) });
     const g = taskData.find(x=>x.list.id===listId); if(g) g.tasks = g.tasks.filter(t=>t.id!==id);
+    if(matrixPos[id]){ delete matrixPos[id]; saveSettingsDesc(); }   // マトリクスからも外す
     renderView(); toast("完了にしました");
   }catch(err){ toast("完了に失敗: "+(err.message||err)); }
 }
@@ -690,6 +697,7 @@ async function deleteTask(){
   try{
     await apiTasks("/lists/"+encodeURIComponent(listId)+"/tasks/"+encodeURIComponent(taskId), { method:"DELETE" });
     const g = taskData.find(x=>x.list.id===listId); if(g) g.tasks = g.tasks.filter(t=>t.id!==taskId);
+    if(matrixPos[taskId]){ delete matrixPos[taskId]; saveSettingsDesc(); }
     closeTaskEdit(); renderView(); toast("削除しました");
   }catch(err){ toast("削除に失敗: "+(err.message||err)); }
 }
@@ -730,15 +738,17 @@ async function addTagList(){
 
 function renderView(){
   const days = daysToShow();
+  const sub = mode==="tasks" ? "タスク（Google ToDo）"
+            : mode==="matrix" ? "マトリクス（優先度）"
+            : (md(days[0]) + " – " + md(days[days.length-1]));
   document.getElementById("rangesub").textContent =
-    (mode==="tasks" ? "タスク（Google ToDo）" : (md(days[0]) + " – " + md(days[days.length-1]))) + "　"
-    + (LIVE ? "Googleカレンダーに接続中" : "モックデータ（未接続）") + "　/ build " + BUILD;
+    sub + "　" + (LIVE ? "Googleカレンダーに接続中" : "モックデータ（未接続）") + "　/ build " + BUILD;
 
   if(mode==="tasks"){
     viewEl.innerHTML = renderTasks();
     tkWire();
   }else if(mode==="matrix"){
-    viewEl.innerHTML = renderMatrix(days);
+    viewEl.innerHTML = renderMatrix();
     mxWire();
   }else{
     viewEl.innerHTML = (mode==="day3" ? renderDay3(days) : renderScroll(days))
@@ -859,34 +869,38 @@ function renderDay3(days){
   </div>`;
 }
 
-/* ---- アイゼンハワー・マトリクス ---- */
-const MATRIX_DEFAULT_CALS = ["報連相","仕事"];   // 既定でチェックを入れるカレンダー名
-function matrixCalSet(){
-  if(matrixCals) return new Set(matrixCals);            // ユーザー選択があればそれ
-  // 既定は「報連相・仕事」だけ（該当が無ければ空。あとはチェックで足す）
-  return new Set(calendars.filter(c=> MATRIX_DEFAULT_CALS.some(n=>c.name.indexOf(n)>=0)).map(c=>c.id));
+/* ---- アイゼンハワー・マトリクス（Google Tasks を配置） ---- */
+const MX_PALETTE = ["#3F5A73","#B4472F","#5E7A5E","#8A6D1F","#6B5B7B","#2F6FB5","#B07A3F","#4A7C7C"];
+function matrixTagSet(){
+  if(matrixTags) return new Set(matrixTags);            // ユーザー選択
+  return new Set((taskData||[]).map(g=>g.list.id));     // 既定は全タグ
 }
-function mxCardHtml(e, pos){
-  const cal = calById(e.calId) || {color:"var(--ink)"};
+function mxCardHtml(o, pos){
+  const col = MX_PALETTE[o.idx % MX_PALETTE.length];
   const style = pos ? `left:${(pos.x*100).toFixed(2)}%;top:${(pos.y*100).toFixed(2)}%;` : "";
-  const when = e.allDay ? "終日" : (e.time||"");
-  return `<button class="mx-card${pos?" placed":""}" data-id="${esc(e.id)}"
-    style="${style}border-color:${cal.color};background:color-mix(in srgb, ${cal.color} 22%, #fff)">
-    <span class="mx-when">${md(e.date)} ${when}</span><span class="mx-ttl">${esc(e.title)}</span></button>`;
+  const due = o.t.due ? " · "+mdFromDue(o.t.due) : "";
+  return `<div class="mx-card${pos?" placed":""}" data-id="${esc(o.t.id)}" data-list="${esc(o.list.id)}"
+    style="${style}border-color:${col};background:color-mix(in srgb, ${col} 20%, #fff)">
+    <span class="mx-check" title="完了"></span>
+    <span class="mx-body"><span class="mx-when">${esc(o.list.title)}${due}</span><span class="mx-ttl">${esc(o.t.title||"(無題)")}</span></span>
+  </div>`;
 }
-function renderMatrix(days){
-  const dset = new Set(days), onCals = matrixCalSet();
-  const items = events.filter(e=> dset.has(e.date) && onCals.has(e.calId) && !e.done);
-  const placed   = items.filter(e=> matrixPos[e.id]);
-  const unplaced = items.filter(e=> !matrixPos[e.id]);
-  const checks = calendars.map(c=>
-    `<label><input type="checkbox" class="mx-calcb" data-cal="${esc(c.id)}" ${onCals.has(c.id)?"checked":""}>`
-    + `<span class="sw" style="background:${c.color}"></span>${esc(c.name)}</label>`).join("");
-  const s = mondayOf(anchor);
-  const weekLabel = md(ymd(s)) + " – " + md(ymd(addDays(s,6)));
+function renderMatrix(){
+  if(!LIVE) return `<p class="empty-note">Googleに接続するとタスクが並びます。</p>`;
+  if(taskData === null){ loadTasks(); return `<p class="empty-note">タスクを読み込み中…</p>`; }
+  const tagSel = matrixTagSet();
+  const items = [];
+  taskData.forEach((g, idx)=>{ if(tagSel.has(g.list.id)) g.tasks.forEach(t=> items.push({ t, list:g.list, idx })); });
+  const placed   = items.filter(o=> matrixPos[o.t.id]);
+  const unplaced = items.filter(o=> !matrixPos[o.t.id]);
+  const checks = taskData.map((g, idx)=>{
+    const col = MX_PALETTE[idx % MX_PALETTE.length];
+    return `<label><input type="checkbox" class="mx-tagcb" data-list="${esc(g.list.id)}" ${tagSel.has(g.list.id)?"checked":""}>`
+      + `<span class="sw" style="background:${col}"></span>${esc(g.list.title)}</label>`;
+  }).join("");
   return `<div class="matrix">
-    <div class="mx-cals"><span class="mx-calslab">対象:</span>${checks}</div>
-    <div class="mx-weeklab">${weekLabel} の予定（${items.length}件）</div>
+    <div class="mx-cals"><span class="mx-calslab">タグ:</span>${checks || "（タグなし）"}</div>
+    <div class="mx-weeklab">タスク ${items.length}件</div>
     <div class="mx-wrap">
       <div class="mx-yaxis"><span>重要</span><span>重要でない</span></div>
       <div class="mx-main">
@@ -895,26 +909,32 @@ function renderMatrix(days){
           <div class="mx-quad q2"><span class="lbl">いつかやる</span></div>
           <div class="mx-quad q3"><span class="lbl">人に任せる</span></div>
           <div class="mx-quad q4"><span class="lbl">やらない</span></div>
-          ${placed.map(e=>mxCardHtml(e, matrixPos[e.id])).join("")}
+          ${placed.map(o=>mxCardHtml(o, matrixPos[o.t.id])).join("")}
         </div>
         <div class="mx-xaxis"><span>緊急</span><span>緊急でない</span></div>
       </div>
     </div>
     <div class="mx-tray" id="mxTray">
       <span class="mx-traylab">未仕分け（ドラッグでマトリクスへ／ここに戻すと外す）</span>
-      ${unplaced.map(e=>mxCardHtml(e, null)).join("")}
+      ${unplaced.map(o=>mxCardHtml(o, null)).join("")}
     </div>
   </div>`;
 }
 function mxWire(){
-  document.querySelectorAll(".mx-card").forEach(card=>
-    card.addEventListener("pointerdown", ev=>mxDrag(ev, card)));
-  document.querySelectorAll(".mx-calcb").forEach(cb=>
+  document.querySelectorAll(".mx-card").forEach(card=>{
+    card.addEventListener("pointerdown", ev=>mxDrag(ev, card));
+    const chk = card.querySelector(".mx-check");
+    if(chk){
+      chk.addEventListener("pointerdown", e=>e.stopPropagation());   // ○ではドラッグ開始させない
+      chk.addEventListener("click", e=>{ e.stopPropagation(); completeTask(card.dataset.list, card.dataset.id); });
+    }
+  });
+  document.querySelectorAll(".mx-tagcb").forEach(cb=>
     cb.addEventListener("change", ()=>{
-      const set = matrixCalSet();
-      if(cb.checked) set.add(cb.dataset.cal); else set.delete(cb.dataset.cal);
-      matrixCals = set;
-      try{ localStorage.setItem("cal_matrixcals", JSON.stringify([...set])); }catch(e){}
+      const set = matrixTagSet();
+      if(cb.checked) set.add(cb.dataset.list); else set.delete(cb.dataset.list);
+      matrixTags = set;
+      try{ localStorage.setItem("cal_matrixtags", JSON.stringify([...set])); }catch(e){}
       renderView();
     }));
 }
@@ -941,7 +961,7 @@ function mxDrag(ev, card){
     card.removeEventListener("pointermove",move);
     card.removeEventListener("pointerup",up);
     card.removeEventListener("pointercancel",up);
-    if(!moved){ openSheet(id, card); return; }              // タップ → ポップオーバー
+    if(!moved){ openTaskEdit(card.dataset.list, id); return; }   // タップ → タスク編集
     const g = grid.getBoundingClientRect(), t = tray.getBoundingClientRect();
     const inTray = e.clientX>=t.left && e.clientX<=t.right && e.clientY>=t.top && e.clientY<=t.bottom;
     if(inTray){ delete matrixPos[id]; }
