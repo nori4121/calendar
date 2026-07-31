@@ -279,6 +279,14 @@
   .tke-row span{flex:1;min-width:0}
   .tke-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:2px}
   .tke-actions .btn{padding:6px 12px;font-size:12.5px}
+  .tke-sched{margin:2px 0 10px;padding:9px 10px;border:1px dashed var(--grid-strong);border-radius:5px;background:rgba(0,0,0,.015)}
+  .tke-schl{font-size:11px;color:var(--ink-soft);margin:0 0 7px}
+  .tke-schl #tkSchedCur{color:var(--shu)}
+  .tke-sched-actions{display:flex;gap:7px;margin-top:2px}
+  .tke-sched-actions .btn{padding:6px 12px;font-size:12.5px}
+  .tk-sch{flex:0 0 auto;font-family:var(--mono);font-size:10px;color:var(--shu)}
+  .mx-card .mx-sch{flex:0 0 auto;font-size:10px}
+  .mx-card.sched{box-shadow:0 1px 3px -1px rgba(0,0,0,.3),0 0 0 1.5px var(--shu)}
   .tk-ttl{flex:1;min-width:0;font-size:13px;line-height:1.4;overflow-wrap:anywhere}
   .tk-due{flex:0 0 auto;font-family:var(--mono);font-size:10.5px;color:var(--shu)}
   .tk-none{font-size:12px;color:var(--ink-faint);padding:4px 2px}
@@ -413,6 +421,23 @@
     <span><label class="tke-l">期日</label><input id="tkEditDue" type="date" class="tke-in"></span>
     <span><label class="tke-l">タグ</label><select id="tkEditList" class="tke-in"></select></span>
   </div>
+  <div class="tke-sched">
+    <div class="tke-schl">カレンダーに入れる（時間ブロック）<span id="tkSchedCur"></span></div>
+    <div class="tke-row">
+      <span><label class="tke-l">日</label><input id="tkSchedDate" type="date" class="tke-in"></span>
+      <span><label class="tke-l">開始</label><input id="tkSchedTime" type="time" class="tke-in"></span>
+    </div>
+    <div class="tke-row">
+      <span><label class="tke-l">長さ</label><select id="tkSchedDur" class="tke-in">
+        <option value="30">30分</option><option value="60" selected>1時間</option>
+        <option value="90">1.5時間</option><option value="120">2時間</option></select></span>
+      <span><label class="tke-l">カレンダー</label><select id="tkSchedCal" class="tke-in"></select></span>
+    </div>
+    <div class="tke-sched-actions">
+      <button id="tkSchedAdd" class="btn">カレンダーに入れる</button>
+      <button id="tkSchedRemove" class="btn" style="display:none">予定を外す</button>
+    </div>
+  </div>
   <div class="tke-actions">
     <button id="tkEditSave" class="btn primary">保存</button>
     <button id="tkEditDel" class="btn">削除</button>
@@ -455,7 +480,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b40";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b41";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -473,6 +498,9 @@ let matrixCals = null;                   // (旧) 未使用
 try{ const a=JSON.parse(localStorage.getItem("cal_matrixcals")||"null"); if(Array.isArray(a)) matrixCals=new Set(a); }catch(e){}
 let matrixTags = null;                    // マトリクスに載せるタグ(Tasksリスト)ID(Set)。null=全タグ
 try{ const a=JSON.parse(localStorage.getItem("cal_matrixtags")||"null"); if(Array.isArray(a)) matrixTags=new Set(a); }catch(e){}
+let taskSched = {};                        // タスク⇔カレンダー予定の紐づけ taskId->{calId,eventId,date,time,end}
+try{ taskSched = JSON.parse(localStorage.getItem("cal_tasksched")||"{}") || {}; }catch(e){}
+const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tokyo";
 let mode = "scroll";                    // "scroll"(一枚もの) | "day3"(3日)
 let pendingScrollNow = false;           // 次の描画後に現在時刻へ自動スクロールするか
 const PXH = 60;                         // 時間軸: 1時間の高さ(px)
@@ -608,9 +636,11 @@ function renderTasks(){
     + taskData.map(g=>{
         const items = g.tasks.length ? g.tasks.map(t=>{
           const sub = t.parent ? " tk-sub" : "";
+          const sch = taskSched[t.id] ? `<span class="tk-sch" title="予定 ${esc(taskSched[t.id].date)} ${esc(taskSched[t.id].time)}">📅 ${mdFromDue(taskSched[t.id].date)} ${esc(taskSched[t.id].time)}</span>` : "";
           return `<div class="tk-item${sub}" data-id="${esc(t.id)}" data-list="${esc(g.list.id)}">
             <span class="tk-check" title="完了にする"></span>
             <span class="tk-ttl">${esc(t.title||"(無題)")}</span>
+            ${sch}
             ${t.due ? `<span class="tk-due">${mdFromDue(t.due)}</span>` : ""}
           </div>`;
         }).join("") : `<div class="tk-none">（なし）</div>`;
@@ -642,7 +672,10 @@ async function completeTask(listId, id){
     await apiTasks("/lists/"+encodeURIComponent(listId)+"/tasks/"+encodeURIComponent(id),
       { method:"PATCH", body: JSON.stringify({ status:"completed" }) });
     const g = taskData.find(x=>x.list.id===listId); if(g) g.tasks = g.tasks.filter(t=>t.id!==id);
-    if(matrixPos[id]){ delete matrixPos[id]; saveSettingsDesc(); }   // マトリクスからも外す
+    let ch=false;
+    if(matrixPos[id]){ delete matrixPos[id]; ch=true; }             // マトリクスからも外す
+    if(taskSched[id]){ await dropLinkedEvent(id); ch=true; }        // 紐づく予定も消す
+    if(ch) saveSettingsDesc();
     renderView(); toast("完了にしました");
   }catch(err){ toast("完了に失敗: "+(err.message||err)); }
 }
@@ -655,9 +688,75 @@ function openTaskEdit(listId, id){
   document.getElementById("tkEditDue").value = t.due ? t.due.slice(0,10) : "";
   document.getElementById("tkEditList").innerHTML =
     taskData.map(gg=>`<option value="${esc(gg.list.id)}"${gg.list.id===listId?" selected":""}>${esc(gg.list.title)}</option>`).join("");
+  // スケジュール欄
+  const sched = taskSched[id];
+  document.getElementById("tkSchedDate").value = sched ? sched.date : "";
+  document.getElementById("tkSchedTime").value = sched ? sched.time : "";
+  const wcals = calendars.filter(c=>c.writable !== false);
+  document.getElementById("tkSchedCal").innerHTML =
+    (wcals.length ? wcals : [{id:"primary",name:"メイン"}]).map(c=>
+      `<option value="${esc(c.id)}"${sched&&sched.calId===c.id?" selected":""}>${esc(c.name)}</option>`).join("");
+  document.getElementById("tkSchedCur").textContent = sched ? "（現在: "+mdFromDue(sched.date)+" "+sched.time+"–"+sched.end+"）" : "";
+  document.getElementById("tkSchedRemove").style.display = sched ? "" : "none";
+  document.getElementById("tkSchedAdd").textContent = sched ? "時間を更新" : "カレンダーに入れる";
   document.getElementById("tkEdit").classList.add("on");
   document.getElementById("tkEditBd").classList.add("on");
   document.getElementById("tkEditTitle").focus();
+}
+/* タスク → カレンダー予定を作成/更新（紐づけ・タスクは残る） */
+async function scheduleTask(){
+  if(!tkEditRef) return;
+  const id = tkEditRef.taskId;
+  const date = document.getElementById("tkSchedDate").value;
+  const time = document.getElementById("tkSchedTime").value;
+  const dur  = parseInt(document.getElementById("tkSchedDur").value,10) || 60;
+  const calId = document.getElementById("tkSchedCal").value || "primary";
+  if(!date || !time){ toast("日付と開始時刻を入れてください"); return; }
+  const [hh,mm] = time.split(":").map(Number);
+  let endMin = hh*60+mm+dur; if(endMin>1439) endMin=1439;
+  const endStr = pad(Math.floor(endMin/60))+":"+pad(endMin%60);
+  const title = (document.getElementById("tkEditTitle").value||"").trim() || "（無題）";
+  const body = {
+    summary: title,
+    start:{ dateTime: date+"T"+time+":00", timeZone: TZ },
+    end:  { dateTime: date+"T"+endStr+":00", timeZone: TZ },
+    extendedProperties:{ private:{ calappTask: id } }
+  };
+  try{
+    const cur = taskSched[id];
+    let ev;
+    if(cur && cur.eventId && cur.calId===calId){
+      ev = await api("/calendars/"+encodeURIComponent(calId)+"/events/"+encodeURIComponent(cur.eventId), { method:"PATCH", body: JSON.stringify(body) });
+    }else{
+      if(cur && cur.eventId){ try{ await api("/calendars/"+encodeURIComponent(cur.calId)+"/events/"+encodeURIComponent(cur.eventId), { method:"DELETE" }); }catch(_){} }
+      ev = await api("/calendars/"+encodeURIComponent(calId)+"/events", { method:"POST", body: JSON.stringify(body) });
+    }
+    taskSched[id] = { calId, eventId: ev.id, date, time, end: endStr };
+    saveSettingsDesc();
+    closeTaskEdit();
+    if(LIVE) loadLive();                 // カレンダー側にも反映させる
+    else renderView();
+    toast("カレンダーに入れました");
+  }catch(err){ toast("カレンダー化に失敗: "+(err.message||err)); }
+}
+async function unscheduleTask(){
+  if(!tkEditRef) return;
+  const id = tkEditRef.taskId, cur = taskSched[id];
+  if(!cur) return;
+  try{ await api("/calendars/"+encodeURIComponent(cur.calId)+"/events/"+encodeURIComponent(cur.eventId), { method:"DELETE" }); }catch(_){}
+  delete taskSched[id]; saveSettingsDesc();
+  closeTaskEdit();
+  if(LIVE) loadLive(); else renderView();
+  toast("予定を外しました");
+}
+document.getElementById("tkSchedAdd").addEventListener("click", scheduleTask);
+document.getElementById("tkSchedRemove").addEventListener("click", unscheduleTask);
+/* タスクを完了/削除する時、紐づいたカレンダー予定も消す */
+async function dropLinkedEvent(id){
+  const cur = taskSched[id];
+  if(!cur) return;
+  try{ await api("/calendars/"+encodeURIComponent(cur.calId)+"/events/"+encodeURIComponent(cur.eventId), { method:"DELETE" }); }catch(_){}
+  delete taskSched[id];
 }
 function closeTaskEdit(){
   tkEditRef = null;
@@ -698,7 +797,10 @@ async function deleteTask(){
   try{
     await apiTasks("/lists/"+encodeURIComponent(listId)+"/tasks/"+encodeURIComponent(taskId), { method:"DELETE" });
     const g = taskData.find(x=>x.list.id===listId); if(g) g.tasks = g.tasks.filter(t=>t.id!==taskId);
-    if(matrixPos[taskId]){ delete matrixPos[taskId]; saveSettingsDesc(); }
+    let ch=false;
+    if(matrixPos[taskId]){ delete matrixPos[taskId]; ch=true; }
+    if(taskSched[taskId]){ await dropLinkedEvent(taskId); ch=true; }
+    if(ch) saveSettingsDesc();
     closeTaskEdit(); renderView(); toast("削除しました");
   }catch(err){ toast("削除に失敗: "+(err.message||err)); }
 }
@@ -881,10 +983,12 @@ function mxCardHtml(o, pos){
   const col = MX_PALETTE[o.idx % MX_PALETTE.length];
   const style = pos ? `left:${(pos.x*100).toFixed(2)}%;top:${(pos.y*100).toFixed(2)}%;` : "";
   const due = o.t.due ? " · "+mdFromDue(o.t.due) : "";
-  return `<div class="mx-card${pos?" placed":""}" data-id="${esc(o.t.id)}" data-list="${esc(o.list.id)}"
+  const sch = taskSched[o.t.id] ? `<span class="mx-sch" title="予定済み ${esc(taskSched[o.t.id].date)} ${esc(taskSched[o.t.id].time)}">📅</span>` : "";
+  return `<div class="mx-card${pos?" placed":""}${taskSched[o.t.id]?" sched":""}" data-id="${esc(o.t.id)}" data-list="${esc(o.list.id)}"
     style="${style}border-color:${col};background:color-mix(in srgb, ${col} 20%, #fff)">
     <span class="mx-check" title="完了"></span>
     <span class="mx-body"><span class="mx-when">${esc(o.list.title)}${due}</span><span class="mx-ttl">${esc(o.t.title||"(無題)")}</span></span>
+    ${sch}
   </div>`;
 }
 function renderMatrix(){
@@ -1489,7 +1593,9 @@ async function loadBannerRemote(){
       if(Array.isArray(d.localDone)){ localDone = new Set(d.localDone);
         localStorage.setItem("cal_localdone", JSON.stringify([...localDone])); }
       if(d.matrixPos && typeof d.matrixPos === "object"){ matrixPos = d.matrixPos;
-        localStorage.setItem("cal_matrixpos", JSON.stringify(matrixPos)); } }catch(_){}
+        localStorage.setItem("cal_matrixpos", JSON.stringify(matrixPos)); }
+      if(d.taskSched && typeof d.taskSched === "object"){ taskSched = d.taskSched;
+        localStorage.setItem("cal_tasksched", JSON.stringify(taskSched)); } }catch(_){}
     applyLocalDone();
   }catch(e){}
 }
@@ -1519,13 +1625,14 @@ function saveSettingsDesc(){
   try{
     localStorage.setItem("cal_localdone", JSON.stringify([...localDone]));
     localStorage.setItem("cal_matrixpos", JSON.stringify(matrixPos));
+    localStorage.setItem("cal_tasksched", JSON.stringify(taskSched));
   }catch(e){}
   if(!LIVE) return;
   clearTimeout(_descTimer);
   _descTimer = setTimeout(async ()=>{
     try{ const id = await ensureSettingsEvent(); if(!id) return;
       await api("/calendars/primary/events/"+encodeURIComponent(id),
-        { method:"PATCH", body: JSON.stringify({ description: JSON.stringify({ localDone:[...localDone], matrixPos }) }) });
+        { method:"PATCH", body: JSON.stringify({ description: JSON.stringify({ localDone:[...localDone], matrixPos, taskSched }) }) });
     }catch(e){}
   }, 700);
 }
