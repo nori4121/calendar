@@ -124,6 +124,7 @@
 
   /* ---- 上部の一言スペース（固定表示・白い枠） ---- */
   .banner{position:sticky;top:0;z-index:15;max-width:640px;margin:0 0 6px;padding:6px 0;background:var(--paper)}
+  :root[data-mode="matrix"] .banner{position:static;z-index:auto}   /* マトリクスはバナーを固定しない */
   .banner-toggle{display:inline-flex;align-items:center;gap:6px;margin:0 0 5px 1px;
     font-size:12px;color:var(--ink-soft);cursor:pointer;user-select:none}
   .banner-toggle input{width:15px;height:15px;cursor:pointer;accent-color:var(--shu)}
@@ -454,7 +455,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b39";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b40";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -738,6 +739,7 @@ async function addTagList(){
 
 function renderView(){
   const days = daysToShow();
+  document.documentElement.setAttribute("data-mode", mode);   // モードでCSSを切替（例：マトリクスはバナー固定しない）
   const sub = mode==="tasks" ? "タスク（Google ToDo）"
             : mode==="matrix" ? "マトリクス（優先度）"
             : (md(days[0]) + " – " + md(days[days.length-1]));
