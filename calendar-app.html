@@ -258,9 +258,26 @@
   .tk-tag{display:flex;align-items:baseline;gap:8px;margin:0 0 6px;padding:0 0 5px;
     border-bottom:1.5px solid var(--ink);font-family:var(--gothic);font-weight:600;font-size:14px}
   .tk-tag .tk-count{font-family:var(--mono);font-size:11px;color:var(--ink-faint);font-weight:400}
-  .tk-item{display:flex;align-items:center;gap:9px;padding:6px 2px;border-bottom:1px solid var(--grid)}
+  .tk-item{display:flex;align-items:center;gap:9px;padding:6px 4px;border-bottom:1px solid var(--grid);cursor:pointer;border-radius:3px}
+  .tk-item:hover{background:rgba(0,0,0,.03)}
   .tk-item.tk-sub{padding-left:22px}
-  .tk-check{flex:0 0 auto;width:15px;height:15px;border:1.5px solid var(--ink-soft);border-radius:50%}
+  .tk-check{flex:0 0 auto;width:16px;height:16px;border:1.5px solid var(--ink-soft);border-radius:50%;cursor:pointer}
+  .tk-check:hover{border-color:var(--shu);background:radial-gradient(circle,var(--shu) 40%,transparent 42%)}
+
+  /* タスク編集パネル */
+  .tkedit-bd{position:fixed;inset:0;z-index:49;background:rgba(0,0,0,.25);display:none}
+  .tkedit-bd.on{display:block}
+  .tkedit{position:fixed;z-index:50;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid var(--ink);border-radius:8px;
+    box-shadow:0 14px 40px -10px rgba(0,0,0,.5);padding:16px;display:none}
+  .tkedit.on{display:block}
+  .tke-l{display:block;font-size:11px;color:var(--ink-soft);margin:0 0 3px}
+  .tke-in{width:100%;box-sizing:border-box;font-family:var(--gothic);font-size:13px;padding:7px 9px;
+    border:1px solid var(--grid-strong);border-radius:4px;margin:0 0 10px;background:#fff;color:var(--ink)}
+  .tke-row{display:flex;gap:10px}
+  .tke-row span{flex:1;min-width:0}
+  .tke-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:2px}
+  .tke-actions .btn{padding:6px 12px;font-size:12.5px}
   .tk-ttl{flex:1;min-width:0;font-size:13px;line-height:1.4;overflow-wrap:anywhere}
   .tk-due{flex:0 0 auto;font-family:var(--mono);font-size:10.5px;color:var(--shu)}
   .tk-none{font-size:12px;color:var(--ink-faint);padding:4px 2px}
@@ -383,6 +400,22 @@
 </div>
 
 <!-- action sheet -->
+<div class="tkedit-bd" id="tkEditBd"></div>
+<div class="tkedit" id="tkEdit" aria-hidden="true">
+  <label class="tke-l">題名</label>
+  <input id="tkEditTitle" class="tke-in">
+  <div class="tke-row">
+    <span><label class="tke-l">期日</label><input id="tkEditDue" type="date" class="tke-in"></span>
+    <span><label class="tke-l">タグ</label><select id="tkEditList" class="tke-in"></select></span>
+  </div>
+  <div class="tke-actions">
+    <button id="tkEditSave" class="btn primary">保存</button>
+    <button id="tkEditDone" class="btn">完了にする</button>
+    <button id="tkEditDel" class="btn">削除</button>
+    <button id="tkEditClose" class="btn">閉じる</button>
+  </div>
+</div>
+
 <div class="sheetbd" id="sheetBackdrop"></div>
 <div class="sheet" id="sheet" aria-hidden="true">
   <div class="sheetin">
@@ -419,7 +452,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b36";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b37";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -570,8 +603,8 @@ function renderTasks(){
     + taskData.map(g=>{
         const items = g.tasks.length ? g.tasks.map(t=>{
           const sub = t.parent ? " tk-sub" : "";
-          return `<div class="tk-item${sub}" data-id="${esc(t.id)}">
-            <span class="tk-check"></span>
+          return `<div class="tk-item${sub}" data-id="${esc(t.id)}" data-list="${esc(g.list.id)}">
+            <span class="tk-check" title="完了にする"></span>
             <span class="tk-ttl">${esc(t.title||"(無題)")}</span>
             ${t.due ? `<span class="tk-due">${mdFromDue(t.due)}</span>` : ""}
           </div>`;
@@ -591,7 +624,83 @@ function tkWire(){
   if(nl) nl.addEventListener("click", addTagList);
   const title = document.getElementById("tkAddTitle");
   if(title) title.addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.isComposing){ e.preventDefault(); addTask(); } });
+  // 各タスク：○で完了、行タップで編集
+  document.querySelectorAll(".tk-item").forEach(item=>{
+    const listId = item.dataset.list, id = item.dataset.id;
+    const chk = item.querySelector(".tk-check");
+    if(chk) chk.addEventListener("click", e=>{ e.stopPropagation(); completeTask(listId, id); });
+    item.addEventListener("click", ()=> openTaskEdit(listId, id));
+  });
 }
+async function completeTask(listId, id){
+  try{
+    await apiTasks("/lists/"+encodeURIComponent(listId)+"/tasks/"+encodeURIComponent(id),
+      { method:"PATCH", body: JSON.stringify({ status:"completed" }) });
+    const g = taskData.find(x=>x.list.id===listId); if(g) g.tasks = g.tasks.filter(t=>t.id!==id);
+    renderView(); toast("完了にしました");
+  }catch(err){ toast("完了に失敗: "+(err.message||err)); }
+}
+let tkEditRef = null;
+function openTaskEdit(listId, id){
+  const g = taskData.find(x=>x.list.id===listId); if(!g) return;
+  const t = g.tasks.find(x=>x.id===id); if(!t) return;
+  tkEditRef = { listId, taskId:id };
+  document.getElementById("tkEditTitle").value = t.title || "";
+  document.getElementById("tkEditDue").value = t.due ? t.due.slice(0,10) : "";
+  document.getElementById("tkEditList").innerHTML =
+    taskData.map(gg=>`<option value="${esc(gg.list.id)}"${gg.list.id===listId?" selected":""}>${esc(gg.list.title)}</option>`).join("");
+  document.getElementById("tkEdit").classList.add("on");
+  document.getElementById("tkEditBd").classList.add("on");
+  document.getElementById("tkEditTitle").focus();
+}
+function closeTaskEdit(){
+  tkEditRef = null;
+  document.getElementById("tkEdit").classList.remove("on");
+  document.getElementById("tkEditBd").classList.remove("on");
+}
+async function saveTaskEdit(){
+  if(!tkEditRef) return;
+  const { listId, taskId } = tkEditRef;
+  const title = (document.getElementById("tkEditTitle").value||"").trim();
+  const dueVal = document.getElementById("tkEditDue").value;
+  const newList = document.getElementById("tkEditList").value;
+  if(!title){ document.getElementById("tkEditTitle").focus(); return; }
+  const due = dueVal ? dueVal+"T00:00:00.000Z" : null;
+  try{
+    const g = taskData.find(x=>x.list.id===listId);
+    if(newList && newList !== listId){
+      // タグ変更＝別リストへ作り直して元を削除（TasksにはList間moveが無い）
+      const old = g && g.tasks.find(t=>t.id===taskId);
+      const body = { title }; if(due) body.due = due; if(old && old.notes) body.notes = old.notes;
+      const created = await apiTasks("/lists/"+encodeURIComponent(newList)+"/tasks", { method:"POST", body: JSON.stringify(body) });
+      await apiTasks("/lists/"+encodeURIComponent(listId)+"/tasks/"+encodeURIComponent(taskId), { method:"DELETE" });
+      if(g) g.tasks = g.tasks.filter(t=>t.id!==taskId);
+      const ng = taskData.find(x=>x.list.id===newList); if(ng && created) ng.tasks.unshift(created);
+    }else{
+      const updated = await apiTasks("/lists/"+encodeURIComponent(listId)+"/tasks/"+encodeURIComponent(taskId),
+        { method:"PATCH", body: JSON.stringify({ title, due }) });
+      const t = g && g.tasks.find(x=>x.id===taskId);
+      if(t){ t.title = title; if(updated && updated.due) t.due = updated.due; else delete t.due; }
+    }
+    closeTaskEdit(); renderView(); toast("保存しました");
+  }catch(err){ toast("保存に失敗: "+(err.message||err)); }
+}
+async function deleteTask(){
+  if(!tkEditRef) return;
+  if(!confirm("このタスクを削除しますか？")) return;
+  const { listId, taskId } = tkEditRef;
+  try{
+    await apiTasks("/lists/"+encodeURIComponent(listId)+"/tasks/"+encodeURIComponent(taskId), { method:"DELETE" });
+    const g = taskData.find(x=>x.list.id===listId); if(g) g.tasks = g.tasks.filter(t=>t.id!==taskId);
+    closeTaskEdit(); renderView(); toast("削除しました");
+  }catch(err){ toast("削除に失敗: "+(err.message||err)); }
+}
+document.getElementById("tkEditClose").addEventListener("click", closeTaskEdit);
+document.getElementById("tkEditBd").addEventListener("click", closeTaskEdit);
+document.getElementById("tkEditSave").addEventListener("click", saveTaskEdit);
+document.getElementById("tkEditDel").addEventListener("click", deleteTask);
+document.getElementById("tkEditDone").addEventListener("click", ()=>{ if(tkEditRef){ const r=tkEditRef; closeTaskEdit(); completeTask(r.listId, r.taskId); } });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeTaskEdit(); });
 async function addTask(){
   const listId = (document.getElementById("tkAddList")||{}).value;
   const titleEl = document.getElementById("tkAddTitle");
