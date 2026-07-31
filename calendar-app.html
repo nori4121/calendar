@@ -244,6 +244,20 @@
   .d3line{position:absolute;left:0;right:0;border-top:1px solid var(--grid)}
   .d3line.h6,.d3line.h12,.d3line.h18{border-top-color:var(--grid-strong)}
 
+  /* ---- タスク（タグ別グループ俯瞰） ---- */
+  .tasks{max-width:640px}
+  .tk-total{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin:0 0 12px}
+  .tk-group{margin:0 0 18px}
+  .tk-tag{display:flex;align-items:baseline;gap:8px;margin:0 0 6px;padding:0 0 5px;
+    border-bottom:1.5px solid var(--ink);font-family:var(--gothic);font-weight:600;font-size:14px}
+  .tk-tag .tk-count{font-family:var(--mono);font-size:11px;color:var(--ink-faint);font-weight:400}
+  .tk-item{display:flex;align-items:center;gap:9px;padding:6px 2px;border-bottom:1px solid var(--grid)}
+  .tk-item.tk-sub{padding-left:22px}
+  .tk-check{flex:0 0 auto;width:15px;height:15px;border:1.5px solid var(--ink-soft);border-radius:50%}
+  .tk-ttl{flex:1;min-width:0;font-size:13px;line-height:1.4;overflow-wrap:anywhere}
+  .tk-due{flex:0 0 auto;font-family:var(--mono);font-size:10.5px;color:var(--shu)}
+  .tk-none{font-size:12px;color:var(--ink-faint);padding:4px 2px}
+
   /* ---- アイゼンハワー・マトリクス ---- */
   .matrix{max-width:720px}
   .mx-cals{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:2px 0 8px;font-size:12px;color:var(--ink-soft)}
@@ -329,6 +343,7 @@
   <button class="btn primary" id="connect">Googleに接続</button>
   <button class="btn" id="reload" disabled>再読込</button>
   <span class="modes" role="group" aria-label="表示切替">
+    <button data-mode="tasks" aria-pressed="false">タスク</button>
     <button data-mode="matrix" aria-pressed="false">マトリクス</button>
     <button data-mode="day3" aria-pressed="false">3日</button>
     <button data-mode="scroll" aria-pressed="true">スクロール</button>
@@ -392,12 +407,12 @@
    ============================================================ */
 const CONFIG = {
   CLIENT_ID: "162155904085-ud13pisfjodgim2t19q9n2us70ekc9n4.apps.googleusercontent.com",
-  SCOPE: "https://www.googleapis.com/auth/calendar",
+  SCOPE: "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks",
   GRAY_COLOR_ID: "8",                              // Google の「Graphite(灰)」
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b34";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b35";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -528,13 +543,40 @@ function renderCals(){
   });
 }
 
+/* ---- タスク：タグ（リスト）別のグループ俯瞰（読むだけ・第1版） ---- */
+function mdFromDue(due){ const [,m,d] = due.slice(0,10).split("-"); return (+m)+"/"+(+d); }
+function renderTasks(){
+  if(!LIVE) return `<p class="empty-note">Googleに接続するとタスクが表示されます。</p>`;
+  if(taskData === null){ loadTasks(); return `<p class="empty-note">タスクを読み込み中…</p>`; }
+  if(!taskData.length) return `<p class="empty-note">タスクリストがありません。Google ToDo でリストを作ると出てきます。</p>`;
+  const total = taskData.reduce((n,g)=>n+g.tasks.length, 0);
+  return `<div class="tasks"><p class="tk-total">未完了 ${total}件 / ${taskData.length}タグ</p>`
+    + taskData.map(g=>{
+        const items = g.tasks.length ? g.tasks.map(t=>{
+          const sub = t.parent ? " tk-sub" : "";
+          return `<div class="tk-item${sub}" data-id="${esc(t.id)}">
+            <span class="tk-check"></span>
+            <span class="tk-ttl">${esc(t.title||"(無題)")}</span>
+            ${t.due ? `<span class="tk-due">${mdFromDue(t.due)}</span>` : ""}
+          </div>`;
+        }).join("") : `<div class="tk-none">（なし）</div>`;
+        return `<section class="tk-group">
+          <h3 class="tk-tag"><span class="tk-tagname">${esc(g.list.title)}</span><span class="tk-count">${g.tasks.length}</span></h3>
+          ${items}
+        </section>`;
+      }).join("")
+    + `</div>`;
+}
+
 function renderView(){
   const days = daysToShow();
   document.getElementById("rangesub").textContent =
-    md(days[0]) + " – " + md(days[days.length-1]) + "　"
+    (mode==="tasks" ? "タスク（Google ToDo）" : (md(days[0]) + " – " + md(days[days.length-1]))) + "　"
     + (LIVE ? "Googleカレンダーに接続中" : "モックデータ（未接続）") + "　/ build " + BUILD;
 
-  if(mode==="matrix"){
+  if(mode==="tasks"){
+    viewEl.innerHTML = renderTasks();
+  }else if(mode==="matrix"){
     viewEl.innerHTML = renderMatrix(days);
     mxWire();
   }else{
@@ -948,6 +990,43 @@ async function api(path, opts){
   }
   return res.status===204 ? null : res.json();
 }
+/* Google Tasks API（別ドメイン） */
+async function apiTasks(path, opts){
+  const res = await fetch("https://tasks.googleapis.com/tasks/v1"+path, Object.assign({
+    headers: { "Authorization":"Bearer "+TOKEN, "Content-Type":"application/json" }
+  }, opts));
+  if(!res.ok){
+    const t = await res.text().catch(()=> "");
+    throw new Error(res.status+" "+t.slice(0,140));
+  }
+  return res.status===204 ? null : res.json();
+}
+/* タスク（Google ToDo）を読み込む：リスト=タグ ごとにタスクを取得 */
+let taskData = null;        // [{list:{id,title}, tasks:[...]}]
+let taskLoading = false;
+async function loadTasks(){
+  if(!LIVE || taskLoading) return;
+  taskLoading = true;
+  try{
+    const lists = await apiTasks("/users/@me/lists?maxResults=100");
+    const out = [];
+    for(const l of (lists.items||[])){
+      const q = new URLSearchParams({ maxResults:"100", showCompleted:"false" });
+      let data; try{ data = await apiTasks("/lists/"+encodeURIComponent(l.id)+"/tasks?"+q.toString()); }
+      catch(e){ data = { items:[] }; }
+      out.push({ list:{ id:l.id, title:l.title }, tasks:(data.items||[]) });
+    }
+    taskData = out;
+  }catch(err){
+    const msg = String(err.message||err);
+    if(/^40[13]/.test(msg)) toast("タスクの権限がありません。『再接続』で許可してください。");
+    else toast("タスクの読み込みに失敗: "+msg);
+    taskData = [];
+  }finally{
+    taskLoading = false;
+    if(mode==="tasks") renderView();
+  }
+}
 
 async function loadLive(){
   try{
@@ -1073,7 +1152,7 @@ document.querySelectorAll(".modes button").forEach(b=>{
   });
 });
 document.getElementById("connect").addEventListener("click", connect);
-document.getElementById("reload").addEventListener("click", ()=>{ if(LIVE) loadLive(); });
+document.getElementById("reload").addEventListener("click", ()=>{ if(LIVE){ taskData=null; loadLive(); if(mode==="tasks") loadTasks(); } });
 const navStep = () => mode==="day3" ? 1 : mode==="matrix" ? 7 : 7*CONFIG.WEEKS_SHOWN;
 document.getElementById("prev").addEventListener("click", ()=>{ anchor = addDays(anchor, -navStep()); refresh(); });
 document.getElementById("next").addEventListener("click", ()=>{ anchor = addDays(anchor,  navStep()); refresh(); });
