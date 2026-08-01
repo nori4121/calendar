@@ -380,8 +380,6 @@
   <button class="btn primary" id="connect">Googleに接続</button>
   <button class="btn" id="reload" disabled>再読込</button>
   <span class="modes" role="group" aria-label="表示切替">
-    <button data-mode="tasks" aria-pressed="false">タスク</button>
-    <button data-mode="matrix" aria-pressed="false">マトリクス</button>
     <button data-mode="day3" aria-pressed="false">3日</button>
     <button data-mode="scroll" aria-pressed="true">スクロール</button>
   </span>
@@ -475,12 +473,12 @@
    ============================================================ */
 const CONFIG = {
   CLIENT_ID: "162155904085-ud13pisfjodgim2t19q9n2us70ekc9n4.apps.googleusercontent.com",
-  SCOPE: "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks",
+  SCOPE: "https://www.googleapis.com/auth/calendar",
   GRAY_COLOR_ID: "8",                              // Google の「Graphite(灰)」
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b42";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b43";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
