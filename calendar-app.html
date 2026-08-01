@@ -173,7 +173,7 @@
   .ad.routine{border-left-style:dotted}
   /* Poutliner由来の目印（終日バーの先頭に小さな「タ」） */
   .ad .pbadge{display:inline-block;font-family:var(--mono);font-size:9px;line-height:1.4;font-weight:600;
-    background:#F6D9E4;color:#8E2E52;padding:0 5px;border-radius:2px;margin-right:6px;vertical-align:1px}
+    background:#F6D9E4;color:#8E2E52;border:1px solid var(--ink);padding:0 4px;border-radius:2px;margin-right:6px;vertical-align:1px}
   .ad.done .pbadge{background:#EAE6E4;color:var(--ink-faint)}
   .ad.done{border-left-color:var(--gray)!important;background:#F1F1EE!important;color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--gray)}
   .tl-grid{position:relative;margin-left:56px;border-left:1px solid var(--grid-strong)}
@@ -511,7 +511,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b45";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b46";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
