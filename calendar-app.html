@@ -171,6 +171,10 @@
     font-family:inherit;text-align:left
   }
   .ad.routine{border-left-style:dotted}
+  /* Poutliner由来の目印（終日バーの先頭に小さな「タ」） */
+  .ad .pbadge{display:inline-block;font-family:var(--mono);font-size:9px;line-height:1.4;font-weight:600;
+    background:#F6D9E4;color:#8E2E52;padding:0 5px;border-radius:2px;margin-right:6px;vertical-align:1px}
+  .ad.done .pbadge{background:#EAE6E4;color:var(--ink-faint)}
   .ad.done{border-left-color:var(--gray)!important;background:#F1F1EE!important;color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--gray)}
   .tl-grid{position:relative;margin-left:56px;border-left:1px solid var(--grid-strong)}
   .tl-hour{position:absolute;left:0;right:0;border-top:1px solid var(--grid)}
@@ -507,7 +511,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b44";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b45";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -586,7 +590,7 @@ function mockEvents(){
   let seq = 0;
   const push = o => ev.push(Object.assign({
     id:"m"+(++seq), calId:o.calId, title:o.title, allDay:!!o.allDay,
-    time:o.time||"", end:o.end||"", routine:!!o.routine, done:false, doneAt:""
+    time:o.time||"", end:o.end||"", routine:!!o.routine, pout:!!o.pout, done:false, doneAt:""
   }, {}, o.date?{date:o.date}:{}));
   const workdays = [0,1,2,3,4,7,8,9,10,11];        // 月〜金 × 2週
   workdays.forEach(n=>{
@@ -596,6 +600,7 @@ function mockEvents(){
   push({calId:"mock-shigoto", date:D(4),  time:"09:00", title:"ﾙｰﾃｨﾝ表確認_来週の予定", routine:true});
   push({calId:"mock-shigoto", date:D(11), time:"09:00", title:"ﾙｰﾃｨﾝ表確認_来週の予定", routine:true});
   push({calId:"mock-shigoto", date:D(5),  allDay:true, title:"はまぎん(持株会)前月入出金の確認", routine:true});
+  push({calId:"mock-shigoto", date:D(3),  allDay:true, title:"企画書レビュー 【8/4】", pout:true});   // Poutliner由来のサンプル
   push({calId:"mock-shigoto", date:D(12), time:"10:00", end:"19:45", title:"（MEK社内コンペ）", routine:false});
 
   push({calId:"mock-horenso", date:D(4),  time:"12:00", title:"斎藤B_週報提出", routine:true});
@@ -984,7 +989,8 @@ function allDayBtns(d, vis){
     const cls = ["ad", e.routine?"routine":"", e.done?"done":""].join(" ");
     const border = e.done ? "var(--gray)" : cal.color;
     const bg = e.done ? "" : `background:color-mix(in srgb, ${cal.color} 42%, #fff);`;
-    return `<button class="${cls}" data-id="${esc(e.id)}" style="border-color:${border};${bg}">${esc(e.title)}</button>`;
+    const badge = e.pout ? `<span class="pbadge" title="Poutliner由来">タ</span>` : "";
+    return `<button class="${cls}" data-id="${esc(e.id)}" style="border-color:${border};${bg}">${badge}${esc(e.title)}</button>`;
   }).join("");
 }
 const hoursCol = () => Array.from({length:25}, (_,h)=>
@@ -1621,6 +1627,7 @@ function normalize(it, calId){
     end:  (!allDay && endStr) ? hm(endStr) : "",
     routine: !!it.recurringEventId,
     eventType: it.eventType || "default",   // default 以外(focusTime/task等)は編集させない
+    pout: priv.poutliner === "1",           // Poutliner が作った予定（隠しマーカー）
     done: priv.done === "true",
     doneAt: priv.doneAt || "",
     prevColorId: priv.prevColorId || it.colorId || "",
