@@ -215,15 +215,17 @@
   .nowbtn:hover::before{background:var(--paper)}
   .topbtn{background:var(--paper);color:var(--ink);border:1px solid var(--ink);font-size:20px;line-height:1}
   .topbtn:hover{background:var(--ink);color:var(--paper)}
+  .addbtn{background:var(--shu);color:#fff;border:none;font-size:26px;line-height:1}
+  .addbtn:hover{background:var(--shu-deep)}
 
   /* ---- ドラッグで新規作成する時の選択ボックス ---- */
   .tl-creating{position:absolute;left:1px;right:1px;z-index:8;pointer-events:none;
     background:color-mix(in srgb,var(--shu) 20%,#fff);border:1px dashed var(--shu);border-radius:3px;
     font-family:var(--mono);font-size:10px;color:var(--shu-deep);padding:1px 5px;overflow:hidden}
-  /* 編集できる予定：つかむと動かせる／下端で長さ変更 */
-  .tl-ev.canmove{cursor:grab}
+  /* 編集できる予定：つかむと動かせる／下端で長さ変更（touch-action:none でタッチ移動を安定させる） */
+  .tl-ev.canmove{cursor:grab;touch-action:none}
   .tl-ev.editing{z-index:22;box-shadow:0 4px 12px -2px rgba(0,0,0,.45)}
-  .tl-ev .grip{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize}
+  .tl-ev .grip{position:absolute;left:0;right:0;bottom:0;height:12px;cursor:ns-resize}
   .tl-ev .grip::after{content:"";position:absolute;left:50%;bottom:2px;transform:translateX(-50%);
     width:20px;height:2px;border-radius:2px;background:currentColor;opacity:.4}
   .tl-now{position:absolute;left:0;right:0;height:2px;background:var(--shu);z-index:7;pointer-events:none}
@@ -417,9 +419,9 @@
 
 <footer>
   Googleカレンダーを正とし、表示だけをレーンに組み替えます。<b>済</b>にすると色を灰色にし、完了状態は
-  <code>extendedProperties.private</code> に記録します。<b>空き時間をドラッグ</b>すると予定を新規作成（既定は
-  「仕事」）、時間予定は<b>ドラッグで移動／下端で長さ変更</b>、タップで名前変更・削除もできます（終日・繰り返し・
-  閲覧のみの予定は対象外）。接続前はサンプルの<b>モックデータ</b>で動作します。
+  <code>extendedProperties.private</code> に記録します。予定の新規作成は<b>右下の「＋」</b>（PCは<b>空き時間をドラッグ</b>でも可）、
+  時間予定は<b>ドラッグで移動／下端で長さ変更</b>、タップで名前変更・削除もできます（終日・繰り返し・閲覧のみの予定は対象外）。
+  スマホは縦スクロールを優先するため、空きスペースのドラッグ作成は無効です。接続前はサンプルの<b>モックデータ</b>で動作します。
 </footer>
 
 </div>
@@ -489,6 +491,7 @@
 
 <div id="toast"></div>
 <div class="fabs" id="fabs">
+  <button id="addBtn" class="fab addbtn" title="予定を追加" aria-label="予定を追加">＋</button>
   <button id="topBtn" class="fab topbtn" title="先頭へ戻る" aria-label="先頭へ戻る">↑</button>
   <button id="nowBtn" class="fab nowbtn" title="現在時刻へ戻る" aria-label="現在時刻へ戻る">今</button>
 </div>
@@ -511,7 +514,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b46";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b48";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -926,7 +929,7 @@ function nowLabel(){
 function yToMin(px){ return Math.max(0, Math.min(1440, (px/PXH)*60)); }  // グリッド内Y(px) → 分(0..1440)
 function minToY(min){ return (min/60)*PXH; }                             // 分 → Y(px)
 function snapMin(min){ return Math.round(min/15)*15; }                   // 15分刻みに丸める
-function minToHM(min){ min=Math.max(0,Math.min(1440,Math.round(min))); return pad(Math.floor(min/60))+":"+pad(min%60); }
+function minToHM(min){ min=Math.max(0,Math.min(1439,Math.round(min))); return pad(Math.floor(min/60))+":"+pad(min%60); }  // 24:00は無効なので23:59まで
 let localSeq = 0;   // モック時に作った予定の一時ID用
 /* この予定をツール上で編集（移動/長さ変更/名前/削除）してよいか
    ・終日/複数日はダメ（見るだけ）・繰り返しはダメ・focusTimeやtask等の特殊タイプはダメ
@@ -1192,6 +1195,7 @@ function chipHtml(e, cal){
 let creating = null;
 function gridPointerDown(ev, gridEl, date){
   if(ev.button) return;                          // 左クリックのみ
+  if(ev.pointerType === "touch") return;         // タッチは縦スクロール優先（作成は「＋」ボタンで）
   if(ev.target.closest(".tl-ev")) return;        // 既存予定の上では作らない
   if(!date) return;
   ev.preventDefault();
@@ -1236,10 +1240,19 @@ function evPointerDown(ev, el, e){
   const origEnd = e.end ? toMin(e.end) : origStart+30;
   const dur = Math.max(15, origEnd - origStart);
   const startY = ev.clientY;
+  const TH = ev.pointerType === "touch" ? 8 : 4;   // タッチは誤爆しにくいよう少し大きめ
   let moved = false, newStart = origStart, newEnd = origEnd;
+  try{ el.setPointerCapture(ev.pointerId); }catch(_){}   // 指が枠から外れても追従させる
+  const cleanup = ()=>{
+    el.removeEventListener("pointermove", move);
+    el.removeEventListener("pointerup", up);
+    el.removeEventListener("pointercancel", cancel);
+    try{ el.releasePointerCapture(ev.pointerId); }catch(_){}
+    el.classList.remove("editing");
+  };
   const move = me=>{
     const dy = me.clientY - startY;
-    if(!moved && Math.abs(dy) > 4) moved = true;
+    if(!moved && Math.abs(dy) > TH) moved = true;
     if(!moved || !canEdit) return;
     el.classList.add("editing");
     if(isResize){
@@ -1255,16 +1268,16 @@ function evPointerDown(ev, el, e){
     }
   };
   const up = async me=>{
-    document.removeEventListener("pointermove", move);
-    document.removeEventListener("pointerup", up);
-    el.classList.remove("editing");
+    cleanup();
     if(!moved){ openSheet(e.id, el); return; }     // 動かしていない→タップ扱い
     if(!canEdit) return;
     try{ await patchTime(e, minToHM(newStart), minToHM(newEnd)); }
     catch(err){ toast("変更に失敗: "+(err.message||err)); renderView(); }
   };
-  document.addEventListener("pointermove", move);
-  document.addEventListener("pointerup", up);
+  const cancel = ()=>{ cleanup(); renderView(); }; // スクロール横取り等で中断→元の位置へ描き直す
+  el.addEventListener("pointermove", move);
+  el.addEventListener("pointerup", up);
+  el.addEventListener("pointercancel", cancel);
 }
 
 /* --- Google/ローカルへ反映する処理 --- */
@@ -1747,6 +1760,13 @@ document.getElementById("nowBtn").addEventListener("click", ()=>{
 });
 document.getElementById("topBtn").addEventListener("click", ()=>{
   window.scrollTo({ top:0, behavior:"smooth" });                    // 先頭へ戻る
+});
+// 「＋」予定を追加（スマホでも確実に作れる。時刻はフォームで指定）
+document.getElementById("addBtn").addEventListener("click", ()=>{
+  const now = new Date();
+  let s = (now.getHours()+1)*60;                                    // 次の正時から
+  if(s > 1440-60) s = 1440-60;
+  openCreate(ymd(now), snapMin(s), snapMin(s+60));                  // 既定は1時間
 });
 let nowTick = false;
 window.addEventListener("scroll", ()=>{
