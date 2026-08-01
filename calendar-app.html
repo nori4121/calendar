@@ -471,6 +471,16 @@
     <span><label class="tke-l">開始</label><input id="evStart" type="time" class="tke-in"></span>
     <span><label class="tke-l">終了</label><input id="evEnd" type="time" class="tke-in"></span>
   </div>
+  <div class="tke-row">
+    <span><label class="tke-l">繰り返し（個別に登録）</label><select id="evRepeat" class="tke-in">
+      <option value="none" selected>なし</option>
+      <option value="daily">毎日</option>
+      <option value="weekday">平日（月〜金）</option>
+      <option value="weekly">毎週</option>
+      <option value="monthly">毎月</option>
+    </select></span>
+    <span><label class="tke-l">終了日</label><input id="evUntil" type="date" class="tke-in"></span>
+  </div>
   <div class="tke-actions">
     <button id="evCreate" class="btn primary">作成</button>
     <button id="evCancel" class="btn">キャンセル</button>
@@ -514,7 +524,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b48";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b49";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -1292,21 +1302,55 @@ async function patchTime(e, newTime, newEnd){
   e.time = newTime; e.end = newEnd;
   renderView(); toast("時間を変更しました "+newTime+"–"+newEnd);
 }
-async function createEvent(o){
+/* 繰り返しを「個別の単発予定」に展開した日付リストを返す（Googleの繰り返し機能は使わない） */
+function repeatDates(startYmd, untilYmd, mode){
+  if(mode==="none" || !untilYmd) return [startYmd];
+  const start = parseYmd(startYmd), until = parseYmd(untilYmd);
+  if(until < start) return [startYmd];
+  const out = [], CAP = 366;
+  if(mode==="daily" || mode==="weekday"){
+    for(let d=new Date(start); d<=until && out.length<CAP; d.setDate(d.getDate()+1)){
+      const k = d.getDay();
+      if(mode==="daily" || (k!==0 && k!==6)) out.push(ymd(d));
+    }
+  }else if(mode==="weekly"){
+    for(let d=new Date(start); d<=until && out.length<CAP; d.setDate(d.getDate()+7)) out.push(ymd(d));
+  }else if(mode==="monthly"){
+    const dom = start.getDate();
+    let y = start.getFullYear(), m = start.getMonth();
+    while(out.length<CAP){
+      const dim = new Date(y, m+1, 0).getDate();     // その月の日数
+      if(dom<=dim){                                   // 例：31日が無い月はスキップ
+        const cand = new Date(y, m, dom);
+        if(cand>until) break;
+        out.push(ymd(cand));
+      }
+      m++; if(m>11){ m=0; y++; }
+      if(new Date(y, m, 1) > until) break;
+    }
+  }
+  return out.length ? out : [startYmd];
+}
+/* 1〜N個の独立した単発予定を作成（各回は別々の予定＝後で個別に編集できる） */
+async function createEvents(o, dates){
   if(LIVE){
-    await api("/calendars/"+encodeURIComponent(o.calId)+"/events", { method:"POST", body: JSON.stringify({
-      summary:o.title,
-      start:{ dateTime:o.date+"T"+o.time+":00", timeZone:TZ },
-      end:  { dateTime:o.date+"T"+o.end+":00",  timeZone:TZ }
-    }) });
+    for(const d of dates){
+      await api("/calendars/"+encodeURIComponent(o.calId)+"/events", { method:"POST", body: JSON.stringify({
+        summary:o.title,
+        start:{ dateTime:d+"T"+o.time+":00", timeZone:TZ },
+        end:  { dateTime:d+"T"+o.end+":00",  timeZone:TZ }
+      }) });
+    }
     await loadLive();                              // 新IDを得るため読み直す
   }else{
-    events.push({ id:"local-"+(++localSeq), gid:"", calId:o.calId, title:o.title, allDay:false,
-      date:o.date, endDate:"", time:o.time, end:o.end, routine:false, eventType:"default",
-      done:false, doneAt:"", colorId:"", prevColorId:"", htmlLink:"" });
+    for(const d of dates){
+      events.push({ id:"local-"+(++localSeq), gid:"", calId:o.calId, title:o.title, allDay:false,
+        date:d, endDate:"", time:o.time, end:o.end, routine:false, eventType:"default",
+        done:false, doneAt:"", colorId:"", prevColorId:"", htmlLink:"" });
+    }
     renderView();
   }
-  toast("予定を作成しました");
+  toast(dates.length>1 ? (dates.length+"件を登録しました") : "予定を作成しました");
 }
 async function renameEvent(e){
   const name = prompt("新しい題名", e.title);
@@ -1338,6 +1382,8 @@ function openCreate(date, startMin, endMin){
   document.getElementById("evDate").value  = date;
   document.getElementById("evStart").value = minToHM(startMin);
   document.getElementById("evEnd").value   = minToHM(endMin);
+  document.getElementById("evRepeat").value = "none";     // 既定は繰り返しなし
+  document.getElementById("evUntil").value  = "";
   document.getElementById("evModal").classList.add("on");
   document.getElementById("evBd").classList.add("on");
   document.getElementById("evTitle").focus();
@@ -1354,10 +1400,16 @@ document.getElementById("evCreate").addEventListener("click", ()=>{
   const date  = document.getElementById("evDate").value;
   const time  = document.getElementById("evStart").value;
   const end   = document.getElementById("evEnd").value;
+  const repeat= document.getElementById("evRepeat").value;
+  const until = document.getElementById("evUntil").value;
   if(!date || !time || !end){ toast("日付と時刻を入れてください"); return; }
   if(end <= time){ toast("終了は開始より後にしてください"); return; }
+  if(repeat!=="none" && !until){ toast("繰り返しの終了日を入れてください"); return; }
+  if(repeat!=="none" && until < date){ toast("終了日は開始日より後にしてください"); return; }
+  const dates = repeatDates(date, until, repeat);
+  if(dates.length>40 && !confirm(dates.length+"件を個別に作成します。よろしいですか？")) return;
   closeCreate();
-  createEvent({ calId, date, time, end, title }).catch(err=> toast("作成に失敗: "+(err.message||err)));
+  createEvents({ calId, time, end, title }, dates).catch(err=> toast("作成に失敗: "+(err.message||err)));
 });
 document.getElementById("evTitle").addEventListener("keydown", e=>{
   if(e.key==="Enter" && !e.isComposing){ e.preventDefault(); document.getElementById("evCreate").click(); }
