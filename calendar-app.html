@@ -524,7 +524,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b50";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b51";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -1975,12 +1975,21 @@ function applyLocalDone(){
 function boot(){
   installManifest();
   initBanner();
-  calendars = mockCalendars();
-  events = mockEvents();
   setStatus(false);
-  renderCals();
-  pendingScrollNow = true;                // 起動時は現在時刻付近から始める
-  renderView();
+  // 前回つないでいる（トークン保存済み or 接続履歴あり）なら、モックのサンプルを一瞬も見せず
+  // 「読み込み中」から始めて、本物が来たら差し替える
+  const willConnect = !!CONFIG.CLIENT_ID && (!!loadStoredToken() || localStorage.getItem("cal_seen")==="1");
+  if(willConnect){
+    calendars = []; events = [];
+    renderCals();
+    viewEl.innerHTML = `<p class="empty-note">Googleカレンダーを読み込み中…</p>`;
+  }else{
+    calendars = mockCalendars();
+    events = mockEvents();
+    renderCals();
+    pendingScrollNow = true;              // 起動時は現在時刻付近から始める
+    renderView();
+  }
   autoReconnect();                        // 前回つないでいれば黙って再開を試みる
 }
 boot();
