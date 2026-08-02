@@ -524,7 +524,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b49";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b50";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -1420,9 +1420,11 @@ document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeCreate(); })
    アクションシート（済にする / 取り消す）
    ============================================================ */
 let sheetId = null;
+let sheetOpenAt = 0;   // 直近でシートを開いた時刻。タッチ直後の合成clickやスクロールでの即閉じを防ぐ
 function openSheet(id, anchorEl){
   const e = events.find(x=>x.id===id); if(!e) return;
   sheetId = id;
+  sheetOpenAt = Date.now();
   const cal = calById(e.calId);
   const when = md(e.date)+" ("+WK[wdOf(e.date)]+") "+(e.allDay?"終日":(e.time+(e.end?("–"+e.end):"")));
   document.getElementById("sheetTitle").textContent = e.title;
@@ -1474,8 +1476,8 @@ function closeSheet(){
   document.getElementById("sheetBackdrop").classList.remove("on");
 }
 document.getElementById("sheetClose").addEventListener("click", closeSheet);
-document.getElementById("sheetBackdrop").addEventListener("click", closeSheet);
-window.addEventListener("scroll", ()=>{ if(sheetId) closeSheet(); }, { passive:true });
+document.getElementById("sheetBackdrop").addEventListener("click", ()=>{ if(Date.now()-sheetOpenAt < 350) return; closeSheet(); });
+window.addEventListener("scroll", ()=>{ if(sheetId && Date.now()-sheetOpenAt > 350) closeSheet(); }, { passive:true });
 
 async function markDone(id, done){
   const e = events.find(x=>x.id===id); if(!e) return;
