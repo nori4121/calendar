@@ -175,9 +175,9 @@
   .ad .pbadge{display:inline-block;font-family:var(--mono);font-size:9px;line-height:1.4;font-weight:600;
     background:#F6D9E4;color:#8E2E52;border:1px solid var(--ink);padding:0 4px;border-radius:2px;margin-right:6px;vertical-align:1px}
   .ad.done .pbadge{background:#EAE6E4;color:var(--ink-faint)}
-  /* Poutliner由来を目立たせる：カレンダー色（地・左帯）は残したまま、太い黒枠＋太字で囲う */
-  .ad.pout{box-shadow:0 0 0 2px var(--ink);font-weight:600}
-  .ad.pout.done{box-shadow:0 0 0 2px var(--ink-faint)}   /* 済は黒枠も薄墨に */
+  /* Poutliner由来を目立たせる：カレンダー色（地・左帯）は残したまま、真っ黒の太枠(3px)＋太字で囲う */
+  .ad.pout{box-shadow:0 0 0 3px #000;font-weight:600}
+  .ad.pout.done{box-shadow:0 0 0 3px var(--ink-faint)}   /* 済は枠も薄墨に */
   .ad.done{border-left-color:var(--gray)!important;background:#F1F1EE!important;color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--gray)}
   .tl-grid{position:relative;margin-left:56px;border-left:1px solid var(--grid-strong)}
   .tl-hour{position:absolute;left:0;right:0;border-top:1px solid var(--grid)}
@@ -527,7 +527,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b52";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b53";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
