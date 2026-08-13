@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="カレンダー">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiMyMzI2MkEiLz48cmVjdCB4PSIxMyIgeT0iMTIiIHdpZHRoPSIzOCIgaGVpZ2h0PSI0MCIgcng9IjYiIGZpbGw9IiNGN0Y3RjQiLz48bGluZSB4MT0iOSIgeTE9IjM0IiB4Mj0iNTUiIHkyPSIzNCIgc3Ryb2tlPSIjQjQ0NzJGIiBzdHJva2Utd2lkdGg9IjYiLz48Y2lyY2xlIGN4PSIxMiIgY3k9IjM0IiByPSI2IiBmaWxsPSIjQjQ0NzJGIi8+PC9zdmc+">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiMyRjdFNkUiLz48cmVjdCB4PSI5IiB5PSI5IiB3aWR0aD0iNDYiIGhlaWdodD0iNDYiIHJ4PSI4IiBmaWxsPSIjZmZmIi8+PGNpcmNsZSBjeD0iMjUiIGN5PSIxOCIgcj0iMyIgZmlsbD0iIzJGN0U2RSIvPjxjaXJjbGUgY3g9IjM5IiBjeT0iMTgiIHI9IjMiIGZpbGw9IiMyRjdFNkUiLz48L3N2Zz4=">
 <title>カレンダー予定消化ツール</title>
 <style>
   :root{
@@ -527,7 +527,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b53";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b54";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -1776,7 +1776,7 @@ function refresh(){ if(LIVE) loadLive(); else renderView(); }
    ============================================================ */
 function tickNow(){
   const today = ymd(new Date());
-  if(today !== TODAY){ TODAY = today; renderView(); return; }   // 日付をまたいだら描き直す
+  if(today !== TODAY){ TODAY = today; setDateFavicon(); renderView(); return; }   // 日付をまたいだら描き直す＋ファビコンの日付も更新
   const nm = nowMinutes();
   const top = ((nm/60)*PXH) + "px";
   document.querySelectorAll(".tl-now").forEach(el=> el.style.top = top);
@@ -1837,15 +1837,13 @@ window.addEventListener("resize", ()=>{ updateNowBtn(); positionFabs(); }, { pas
    （manifest を実行時に生成して埋め込む。別ファイル不要・置き場所に依存しない）
    ============================================================ */
 function installManifest(){
+  const dd = new Date().getDate();   // インストール時点の日付（PWAアイコンはOSがキャッシュするので固定）
   const svg =
-    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'>"
-    + "<rect width='512' height='512' rx='96' fill='#23262A'/>"
-    + "<rect x='112' y='120' width='288' height='280' rx='22' fill='#F7F7F4'/>"
-    + "<rect x='112' y='120' width='288' height='58' rx='22' fill='#B4472F'/>"
-    + "<g stroke='#D2D5CD' stroke-width='6'>"
-    + "<line x1='140' y1='250' x2='372' y2='250'/><line x1='140' y1='312' x2='372' y2='312'/><line x1='140' y1='374' x2='372' y2='374'/></g>"
-    + "<line x1='112' y1='292' x2='400' y2='292' stroke='#B4472F' stroke-width='9'/>"
-    + "<circle cx='116' cy='292' r='13' fill='#B4472F'/></svg>";
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+    + "<rect width='64' height='64' rx='14' fill='#2F7E6E'/>"
+    + "<rect x='9' y='9' width='46' height='46' rx='8' fill='#fff'/>"
+    + "<circle cx='25' cy='18' r='3' fill='#2F7E6E'/><circle cx='39' cy='18' r='3' fill='#2F7E6E'/>"
+    + "<text x='32' y='47' text-anchor='middle' font-family='Arial,Helvetica,sans-serif' font-weight='700' font-size='31' fill='#2F7E6E'>" + dd + "</text></svg>";
   const icon = "data:image/svg+xml," + encodeURIComponent(svg);
   const dir = location.origin + location.pathname.replace(/[^/]*$/, "");
   const manifest = {
@@ -1864,12 +1862,31 @@ function installManifest(){
   link.rel = "manifest"; link.href = url;
   document.head.appendChild(link);
 
-  // ファビコン(タブ/ブックマーク)は <head> に静的に置いてある（JS注入だと出たり出なかったりするため）
+  // タブのファビコンは setDateFavicon() が「今日の日付」入りに差し替える（静的は番号なしのフォールバック）
 
   // iOS 用のアイコンも同じ絵で（ホーム画面追加時）
   const al = document.createElement("link");
   al.rel = "apple-touch-icon"; al.href = icon;
   document.head.appendChild(al);
+}
+
+/* タブのファビコンを「今日の日付」入りにする（iPhoneのカレンダーアプリのアイコンと同じ発想）。
+   起動時＋日付をまたいだ時に呼ぶ。 */
+let _favDay = "";
+function setDateFavicon(){
+  const dd = new Date().getDate();
+  if(String(dd) === _favDay) return;                 // 同じ日なら何もしない
+  _favDay = String(dd);
+  const svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+    + "<rect width='64' height='64' rx='14' fill='#2F7E6E'/>"
+    + "<rect x='9' y='9' width='46' height='46' rx='8' fill='#fff'/>"
+    + "<circle cx='25' cy='18' r='3' fill='#2F7E6E'/><circle cx='39' cy='18' r='3' fill='#2F7E6E'/>"
+    + "<text x='32' y='47' text-anchor='middle' font-family='Arial,Helvetica,sans-serif' font-weight='700' font-size='31' fill='#2F7E6E'>" + dd + "</text></svg>";
+  const href = "data:image/svg+xml," + encodeURIComponent(svg);
+  let link = document.querySelector("link[rel='icon']");
+  if(!link){ link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
+  link.setAttribute("type", "image/svg+xml");
+  link.setAttribute("href", href);
 }
 
 /* ---- 上部の一言スペース：端末に即保存＋Google側にも保存して両端末で共有 ---- */
@@ -1976,6 +1993,7 @@ function applyLocalDone(){
    起動
    ============================================================ */
 function boot(){
+  setDateFavicon();      // タブのファビコンを今日の日付に
   installManifest();
   initBanner();
   setStatus(false);
