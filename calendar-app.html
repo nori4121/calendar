@@ -219,6 +219,8 @@
   .topbtn{background:var(--paper);color:var(--ink);border:1px solid var(--ink);font-size:20px;line-height:1}
   .topbtn:hover{background:var(--ink);color:var(--paper)}
   .addbtn{background:var(--shu);color:#fff;border:none;font-size:26px;line-height:1}
+  .reloadbtn{background:var(--paper);color:var(--ink);border:1px solid var(--ink);font-size:21px;line-height:1}
+  .reloadbtn:hover{background:var(--ink);color:var(--paper)}
   .addbtn:hover{background:var(--shu-deep)}
 
   /* ---- ドラッグで新規作成する時の選択ボックス ---- */
@@ -505,6 +507,7 @@
 <div id="toast"></div>
 <div class="fabs" id="fabs">
   <button id="addBtn" class="fab addbtn" title="予定を追加" aria-label="予定を追加">＋</button>
+  <button id="reloadBtn" class="fab reloadbtn" title="再読み込み" aria-label="再読み込み">↻</button>
   <button id="topBtn" class="fab topbtn" title="先頭へ戻る" aria-label="先頭へ戻る">↑</button>
   <button id="nowBtn" class="fab nowbtn" title="現在時刻へ戻る" aria-label="現在時刻へ戻る">今</button>
 </div>
@@ -527,7 +530,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b54";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b56";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -1762,6 +1765,7 @@ document.querySelectorAll(".modes button").forEach(b=>{
 });
 document.getElementById("connect").addEventListener("click", connect);
 document.getElementById("reload").addEventListener("click", ()=>{ if(LIVE){ taskData=null; loadLive(); if(mode==="tasks") loadTasks(); } });
+document.getElementById("reloadBtn").addEventListener("click", ()=>{ if(LIVE){ loadLive(); } else { toast("Googleに接続してから使えます"); } });   // 右下の再読み込みボタン
 const navStep = () => mode==="day3" ? 1 : mode==="matrix" ? 7 : 7*CONFIG.WEEKS_SHOWN;
 document.getElementById("prev").addEventListener("click", ()=>{ anchor = addDays(anchor, -navStep()); refresh(); });
 document.getElementById("next").addEventListener("click", ()=>{ anchor = addDays(anchor,  navStep()); refresh(); });
@@ -1784,6 +1788,42 @@ function tickNow(){
   updateNowBtn();
 }
 setInterval(tickNow, 30000);   // 30秒ごとに位置を更新
+
+/* ============================================================
+   自動更新：5分ごと＋タブ復帰時に、予定を静かに取り直して再描画する。
+   （トースト無し・スクロール維持・操作中は触らない。裏タブでは動かさない＝戻った時に更新）
+   ============================================================ */
+let _refreshing = false;
+async function refreshEventsQuiet(){
+  if(!LIVE || _refreshing || document.hidden) return;
+  if(sheetId) return;                                                   // 予定のシートを開いてる間は触らない
+  const evm = document.getElementById("evModal"); if(evm && evm.classList.contains("on")) return;   // 作成モーダル中
+  const tke = document.getElementById("tkEdit");  if(tke && tke.classList.contains("on")) return;   // 編集中
+  _refreshing = true;
+  try{
+    const { timeMin, timeMax } = fetchRange();
+    const all = [];
+    for(const c of calendars){
+      const q = new URLSearchParams({ timeMin: timeMin.toISOString(), timeMax: timeMax.toISOString(),
+        singleEvents:"true", orderBy:"startTime", maxResults:String(CONFIG.MAX_EVENTS) });
+      let data;
+      try{ data = await api("/calendars/"+encodeURIComponent(c.id)+"/events?"+q.toString()); }
+      catch(err){
+        if(/^401/.test(String(err.message||err))){                     // トークン切れ → 静かに取り直し
+          clearToken(); TOKEN=null; LIVE=false; markConnected(false); silentReconnect(); return;
+        }
+        continue;                                                      // 読めないカレンダーは飛ばす
+      }
+      for(const it of (data.items||[])) all.push(normalize(it, c.id));
+    }
+    events = all;
+    for(const e of events){ if(localDone.has(e.id)) e.done = true; }   // ローカル済を反映
+    renderView();                                                      // スクロール位置は維持（pendingScrollNow=false）
+  }catch(e){}
+  finally{ _refreshing = false; }
+}
+setInterval(refreshEventsQuiet, 5*60*1000);                            // 5分ごと
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) refreshEventsQuiet(); });  // タブに戻ったら即更新
 
 /* ============================================================
    現在時刻（赤線）へ戻る：起動時は自動、離れたら右下の「今」ボタン
