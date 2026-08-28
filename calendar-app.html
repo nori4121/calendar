@@ -248,8 +248,10 @@
   /* ---- 7-day view (7 columns, shared time axis, 横スクロール可) ---- */
   .d3{--gut:52px;overflow-x:auto;-webkit-overflow-scrolling:touch}   /* PCは7列収まる／スマホは横スワイプ */
   .d3head,.d3adrow,.d3body{display:grid;grid-template-columns:var(--gut) repeat(7,minmax(118px,1fr))}
-  .d3head{z-index:8;background:var(--paper);border-bottom:1px solid var(--grid-strong)}
+  .d3head{position:sticky;top:var(--bannerH,0);z-index:8;background:var(--paper);border-bottom:1px solid var(--grid-strong)}
   .d3head > *:first-child{position:sticky;left:0;z-index:9;background:var(--paper)}         /* 見出しの時刻ガター列を左に固定 */
+  /* 広い画面(PC)は7列が収まるので横スクロール枠を外す → 見出しの上部固定(sticky)が効く */
+  @media (min-width:1000px){ .d3{overflow-x:visible} }
   .d3dh{padding:6px 4px 5px;text-align:center;border-left:1px solid var(--grid);font-family:var(--mono)}
   .d3dh .d3dn{font-size:18px;line-height:1.1;display:block}
   .d3dh .d3dw{font-size:11px;color:var(--ink-soft)}
@@ -561,7 +563,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b58";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b59";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
