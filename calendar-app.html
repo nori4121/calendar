@@ -245,10 +245,11 @@
   .tl-grid > .tl-nowlab{left:-58px;width:50px}      /* スクロール：時刻の目盛り位置 */
   .d3gutter > .tl-nowlab{right:2px}                  /* 3日：左の時刻ガター */
 
-  /* ---- 3-day view (3 columns, shared time axis) ---- */
-  .d3{--gut:52px}
-  .d3head,.d3adrow,.d3body{display:grid;grid-template-columns:var(--gut) repeat(3,minmax(0,1fr))}
-  .d3head{position:sticky;top:var(--bannerH,0);z-index:8;background:var(--paper);border-bottom:1px solid var(--grid-strong)}
+  /* ---- 7-day view (7 columns, shared time axis, 横スクロール可) ---- */
+  .d3{--gut:52px;overflow-x:auto;-webkit-overflow-scrolling:touch}   /* PCは7列収まる／スマホは横スワイプ */
+  .d3head,.d3adrow,.d3body{display:grid;grid-template-columns:var(--gut) repeat(7,minmax(118px,1fr))}
+  .d3head{z-index:8;background:var(--paper);border-bottom:1px solid var(--grid-strong)}
+  .d3head > *:first-child{position:sticky;left:0;z-index:9;background:var(--paper)}         /* 見出しの時刻ガター列を左に固定 */
   .d3dh{padding:6px 4px 5px;text-align:center;border-left:1px solid var(--grid);font-family:var(--mono)}
   .d3dh .d3dn{font-size:18px;line-height:1.1;display:block}
   .d3dh .d3dw{font-size:11px;color:var(--ink-soft)}
@@ -257,9 +258,9 @@
   .d3dh.today{background:var(--ink)}
   .d3dh.today .d3dn,.d3dh.today .d3dw{color:var(--paper)}
   .d3adrow{border-bottom:1px solid var(--grid-strong)}
-  .d3adlabel{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-align:right;padding:6px 6px 0;align-self:start}
+  .d3adlabel{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-align:right;padding:6px 6px 0;align-self:start;position:sticky;left:0;z-index:7;background:var(--paper)}
   .d3adcell{border-left:1px solid var(--grid);padding:3px;display:flex;flex-direction:column;gap:3px;min-height:22px}
-  .d3gutter{position:relative}
+  .d3gutter{position:sticky;left:0;z-index:7;background:var(--paper)}   /* 時刻ガターを左に固定（横スクロールしても見える） */
   .d3hr{position:absolute;right:6px;transform:translateY(-50%);font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
   .d3col{position:relative;border-left:1px solid var(--grid)}
   .d3col.today{background:rgba(255,255,255,.55)}
@@ -430,7 +431,7 @@
   <button class="btn primary" id="connect">Googleに接続</button>
   <button class="btn" id="reload" disabled>再読込</button>
   <span class="modes" role="group" aria-label="表示切替">
-    <button data-mode="day3" aria-pressed="false">3日</button>
+    <button data-mode="week7" aria-pressed="false">7日</button>
     <button data-mode="scroll" aria-pressed="true">スクロール</button>
     <button data-mode="stats" aria-pressed="false">集計</button>
   </span>
@@ -560,7 +561,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b57";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b58";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -581,7 +582,7 @@ try{ const a=JSON.parse(localStorage.getItem("cal_matrixtags")||"null"); if(Arra
 let taskSched = {};                        // タスク⇔カレンダー予定の紐づけ taskId->{calId,eventId,date,time,end}
 try{ taskSched = JSON.parse(localStorage.getItem("cal_tasksched")||"{}") || {}; }catch(e){}
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tokyo";
-let mode = "scroll";                    // "scroll"(一枚もの) | "day3"(3日)
+let mode = "scroll";                    // "scroll"(一枚もの) | "week7"(7日) | "stats"(集計)
 let pendingScrollNow = false;           // 次の描画後に現在時刻へ自動スクロールするか
 const PXH = 60;                         // 時間軸: 1時間の高さ(px)
 const MINEV_H = 22;                     // 予定ブロックの最小の高さ(px)。これ未満は潰さない
@@ -606,16 +607,17 @@ let TODAY = ymd(new Date());   // 日付をまたいだら tickNow() が更新�
 
 /* 表示する日付の並び（モード別） */
 function daysToShow(){
-  if(mode==="day3") return [0,1,2].map(i=>ymd(addDays(anchor,i)));
+  if(mode==="week7") return [0,1,2,3,4,5,6].map(i=>ymd(addDays(anchor,i)));   // 今日(anchor)から7日
   if(mode==="matrix"){ const s=mondayOf(anchor); return Array.from({length:7}, (_,i)=>ymd(addDays(s,i))); }
   const start = mondayOf(anchor);                    // スクロールは週頭から
   return Array.from({length:7*CONFIG.WEEKS_SHOWN}, (_,i)=>ymd(addDays(start,i)));
 }
 /* データ取得範囲（両モードを覆う広め） */
 function fetchRange(){
-  const start = mondayOf(anchor);
-  const timeMin = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0,0,0,0);
-  const timeMax = addDays(start, 7*CONFIG.WEEKS_SHOWN);
+  const ds = daysToShow();                                   // 表示中の日付（モード別）をそのまま取得範囲に
+  const first = parseYmd(ds[0]), last = parseYmd(ds[ds.length-1]);
+  const timeMin = new Date(first.getFullYear(), first.getMonth(), first.getDate(), 0,0,0,0);
+  const timeMax = addDays(last, 1);
   return { timeMin, timeMax };
 }
 
@@ -940,7 +942,7 @@ function renderView(){
     viewEl.innerHTML = renderStats();
     statsWire();
   }else{
-    viewEl.innerHTML = (mode==="day3" ? renderDay3(days) : renderScroll(days))
+    viewEl.innerHTML = (mode==="week7" ? renderDay3(days) : renderScroll(days))
                        || `<p class="empty-note">表示できる予定がありません。</p>`;
     // 終日は見るだけ（タップでシート）
     viewEl.querySelectorAll(".ad").forEach(el=>{
@@ -1910,7 +1912,7 @@ document.querySelectorAll(".modes button").forEach(b=>{
 document.getElementById("connect").addEventListener("click", connect);
 document.getElementById("reload").addEventListener("click", ()=>{ if(LIVE){ taskData=null; loadLive(); if(mode==="tasks") loadTasks(); } });
 document.getElementById("reloadBtn").addEventListener("click", ()=>{ if(LIVE){ loadLive(); } else { toast("Googleに接続してから使えます"); } });   // 右下の再読み込みボタン
-const navStep = () => mode==="day3" ? 1 : mode==="matrix" ? 7 : 7*CONFIG.WEEKS_SHOWN;
+const navStep = () => mode==="week7" ? 7 : mode==="matrix" ? 7 : 7*CONFIG.WEEKS_SHOWN;
 document.getElementById("prev").addEventListener("click", ()=>{ anchor = addDays(anchor, -navStep()); refresh(); });
 document.getElementById("next").addEventListener("click", ()=>{ anchor = addDays(anchor,  navStep()); refresh(); });
 document.getElementById("today").addEventListener("click", ()=>{ anchor = new Date(); pendingScrollNow = true; refresh(); });
@@ -1940,7 +1942,7 @@ setInterval(tickNow, 30000);   // 30秒ごとに位置を更新
 let _refreshing = false;
 async function refreshEventsQuiet(){
   if(!LIVE || _refreshing || document.hidden) return;
-  if(mode!=="scroll" && mode!=="day3") return;               // 集計/タスク等の時は自動更新しない
+  if(mode!=="scroll" && mode!=="week7") return;              // 集計/タスク等の時は自動更新しない
   if(sheetId) return;                                                   // 予定のシートを開いてる間は触らない
   const evm = document.getElementById("evModal"); if(evm && evm.classList.contains("on")) return;   // 作成モーダル中
   const tke = document.getElementById("tkEdit");  if(tke && tke.classList.contains("on")) return;   // 編集中
