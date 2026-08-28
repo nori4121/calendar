@@ -230,9 +230,14 @@
   /* 編集できる予定：つかむと動かせる／下端で長さ変更（touch-action:none でタッチ移動を安定させる） */
   .tl-ev.canmove{cursor:grab;touch-action:none}
   .tl-ev.editing{z-index:22;box-shadow:0 4px 12px -2px rgba(0,0,0,.45)}
-  .tl-ev .grip{position:absolute;left:0;right:0;bottom:0;height:12px;cursor:ns-resize}
+  .tl-ev .grip{position:absolute;left:0;right:0;bottom:0;height:16px;cursor:ns-resize}
   .tl-ev .grip::after{content:"";position:absolute;left:50%;bottom:2px;transform:translateX(-50%);
-    width:20px;height:2px;border-radius:2px;background:currentColor;opacity:.4}
+    width:26px;height:3px;border-radius:3px;background:currentColor;opacity:.55}
+  .tl-ev.canmove:hover .grip::after{opacity:.85}
+  /* リサイズ/移動中に今の時刻範囲を表示する吹き出し */
+  .dragtip{position:fixed;z-index:60;pointer-events:none;background:var(--ink);color:var(--paper);
+    font-family:var(--mono);font-size:11.5px;padding:3px 7px;border-radius:5px;white-space:nowrap;
+    box-shadow:0 3px 10px -2px rgba(0,0,0,.5);transform:translate(-50%,-140%)}
   .tl-now{position:absolute;left:0;right:0;height:2px;background:var(--shu);z-index:7;pointer-events:none}
   .tl-now::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--shu)}
   /* 赤線に添える日付ラベル（時刻の目盛りのあたりに赤文字2段） */
@@ -563,7 +568,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b59";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b60";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -587,7 +592,7 @@ const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tokyo";
 let mode = "scroll";                    // "scroll"(一枚もの) | "week7"(7日) | "stats"(集計)
 let pendingScrollNow = false;           // 次の描画後に現在時刻へ自動スクロールするか
 const PXH = 60;                         // 時間軸: 1時間の高さ(px)
-const MINEV_H = 22;                     // 予定ブロックの最小の高さ(px)。これ未満は潰さない
+const MINEV_H = 15;                     // 予定ブロックの最小の高さ(px)。15分=15pxまで縮小が見える
 
 /* ============================================================
    日付ユーティリティ（JST基準の "YYYY-MM-DD"）
@@ -984,6 +989,16 @@ function yToMin(px){ return Math.max(0, Math.min(1440, (px/PXH)*60)); }  // グ�
 function minToY(min){ return (min/60)*PXH; }                             // 分 → Y(px)
 function snapMin(min){ return Math.round(min/15)*15; }                   // 15分刻みに丸める
 function minToHM(min){ min=Math.max(0,Math.min(1439,Math.round(min))); return pad(Math.floor(min/60))+":"+pad(min%60); }  // 24:00は無効なので23:59まで
+// リサイズ/移動中に「開始–終了」を指の近くに出す吹き出し
+let _dragTipEl = null;
+function dragTip(x, y, text){
+  if(!_dragTipEl){ _dragTipEl = document.createElement("div"); _dragTipEl.className = "dragtip"; document.body.appendChild(_dragTipEl); }
+  _dragTipEl.textContent = text;
+  _dragTipEl.style.left = x + "px";
+  _dragTipEl.style.top  = y + "px";
+  _dragTipEl.style.display = "block";
+}
+function hideDragTip(){ if(_dragTipEl) _dragTipEl.style.display = "none"; }
 let localSeq = 0;   // モック時に作った予定の一時ID用
 /* この予定をツール上で編集（移動/長さ変更/名前/削除）してよいか
    ・終日/複数日はダメ（見るだけ）・繰り返しはダメ・focusTimeやtask等の特殊タイプはダメ
@@ -1413,6 +1428,7 @@ function evPointerDown(ev, el, e){
     el.removeEventListener("pointercancel", cancel);
     try{ el.releasePointerCapture(ev.pointerId); }catch(_){}
     el.classList.remove("editing");
+    hideDragTip();
   };
   const move = me=>{
     const dy = me.clientY - startY;
@@ -1430,6 +1446,7 @@ function evPointerDown(ev, el, e){
       newEnd = newStart + dur;
       el.style.top = (minToY(newStart)+1)+"px";
     }
+    dragTip(me.clientX, me.clientY, minToHM(newStart) + "–" + minToHM(newEnd));   // 今の長さを指の近くに表示
   };
   const up = async me=>{
     cleanup();
