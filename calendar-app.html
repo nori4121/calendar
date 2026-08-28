@@ -570,7 +570,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b61";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b62";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -1460,6 +1460,12 @@ function evPointerDown(ev, el, e){
   const startY = ev.clientY;
   const TH = ev.pointerType === "touch" ? 8 : 4;   // タッチは誤爆しにくいよう少し大きめ
   let moved = false, newStart = origStart, newEnd = origEnd;
+  // 7日ビューだけ：横ドラッグで別の日（列）へ移動できるようにする
+  const origDate = e.date;
+  let newDate = e.date;
+  const dayCols = (mode==="week7" && !isResize)
+    ? [...document.querySelectorAll(".d3col")].map(c=>({ el:c, date:c.dataset.date, r:c.getBoundingClientRect() }))
+    : null;
   try{ el.setPointerCapture(ev.pointerId); }catch(_){}   // 指が枠から外れても追従させる
   const cleanup = ()=>{
     el.removeEventListener("pointermove", move);
@@ -1484,14 +1490,23 @@ function evPointerDown(ev, el, e){
       if(newStart > 1440-dur) newStart = 1440-dur;
       newEnd = newStart + dur;
       el.style.top = (minToY(newStart)+1)+"px";
+      // 横方向：指が乗っている列＝その日へ。列が変わったらカードをその列へ移し替える
+      if(dayCols){
+        const hit = dayCols.find(c=> me.clientX >= c.r.left && me.clientX < c.r.right);
+        if(hit && hit.date !== newDate){
+          newDate = hit.date;
+          if(el.parentElement !== hit.el) hit.el.appendChild(el);   // 見た目もその列へ（topは時刻のまま）
+        }
+      }
     }
-    dragTip(me.clientX, me.clientY, minToHM(newStart) + "–" + minToHM(newEnd));   // 今の長さを指の近くに表示
+    const datePfx = (newDate !== origDate) ? (md(newDate) + " ") : "";
+    dragTip(me.clientX, me.clientY, datePfx + minToHM(newStart) + "–" + minToHM(newEnd));   // 今の日時を指の近くに表示
   };
   const up = async me=>{
     cleanup();
     if(!moved){ openSheet(e.id, el); return; }     // 動かしていない→タップ扱い
     if(!canEdit) return;
-    try{ await patchTime(e, minToHM(newStart), minToHM(newEnd)); }
+    try{ await patchTime(e, minToHM(newStart), minToHM(newEnd), newDate); }
     catch(err){ toast("変更に失敗: "+(err.message||err)); renderView(); }
   };
   const cancel = ()=>{ cleanup(); renderView(); }; // スクロール横取り等で中断→元の位置へ描き直す
@@ -1501,16 +1516,20 @@ function evPointerDown(ev, el, e){
 }
 
 /* --- Google/ローカルへ反映する処理 --- */
-async function patchTime(e, newTime, newEnd){
+async function patchTime(e, newTime, newEnd, newDate){
+  const d = newDate || e.date;
+  const dayChanged = d !== e.date;
   if(LIVE && e.gid){
     const path = "/calendars/"+encodeURIComponent(e.calId)+"/events/"+encodeURIComponent(e.gid);
     await api(path, { method:"PATCH", body: JSON.stringify({
-      start:{ dateTime:e.date+"T"+newTime+":00", timeZone:TZ },
-      end:  { dateTime:e.date+"T"+newEnd+":00",  timeZone:TZ }
+      start:{ dateTime:d+"T"+newTime+":00", timeZone:TZ },
+      end:  { dateTime:d+"T"+newEnd+":00",  timeZone:TZ }
     }) });
   }
-  e.time = newTime; e.end = newEnd;
-  renderView(); toast("時間を変更しました "+newTime+"–"+newEnd);
+  e.time = newTime; e.end = newEnd; e.date = d;
+  renderView();
+  toast(dayChanged ? (md(d)+" "+newTime+"–"+newEnd+" に移動しました")
+                   : "時間を変更しました "+newTime+"–"+newEnd);
 }
 /* 繰り返しを「個別の単発予定」に展開した日付リストを返す（Googleの繰り返し機能は使わない） */
 function repeatDates(startYmd, untilYmd, mode){
