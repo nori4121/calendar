@@ -180,6 +180,8 @@
   .ad.pout.done{box-shadow:0 0 0 3px var(--ink-faint)}   /* 済は枠も薄墨に */
   .ad.done{border-left-color:var(--gray)!important;background:#F1F1EE!important;color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--gray)}
   .tl-grid{position:relative;margin-left:56px;border-left:1px solid var(--grid-strong)}
+  /* 左の時刻ガター上に重ねる掴みストリップ：上下ドラッグで全体ズーム */
+  .tl-zoom{position:absolute;left:-56px;top:0;width:56px;height:100%;z-index:2;cursor:ns-resize;touch-action:none}
   .tl-hour{position:absolute;left:0;right:0;border-top:1px solid var(--grid)}
   .tl-hour.h6,.tl-hour.h12,.tl-hour.h18{border-top-color:var(--grid-strong)}
   .tl-hour span{position:absolute;left:-54px;top:-7px;width:48px;text-align:right;
@@ -267,7 +269,7 @@
   .d3adrow{border-bottom:1px solid var(--grid-strong)}
   .d3adlabel{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-align:right;padding:6px 6px 0;align-self:start;position:sticky;left:0;z-index:7;background:var(--paper)}
   .d3adcell{border-left:1px solid var(--grid);padding:3px;display:flex;flex-direction:column;gap:3px;min-height:22px}
-  .d3gutter{position:sticky;left:0;z-index:7;background:var(--paper)}   /* 時刻ガターを左に固定（横スクロールしても見える） */
+  .d3gutter{position:sticky;left:0;z-index:7;background:var(--paper);cursor:ns-resize;touch-action:none}   /* 時刻ガターを左に固定＋上下ドラッグで全体ズーム */
   .d3hr{position:absolute;right:6px;transform:translateY(-50%);font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
   .d3col{position:relative;border-left:1px solid var(--grid)}
   .d3col.today{background:rgba(255,255,255,.55)}
@@ -568,7 +570,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b60";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b61";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -591,7 +593,11 @@ try{ taskSched = JSON.parse(localStorage.getItem("cal_tasksched")||"{}") || {}; 
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tokyo";
 let mode = "scroll";                    // "scroll"(一枚もの) | "week7"(7日) | "stats"(集計)
 let pendingScrollNow = false;           // 次の描画後に現在時刻へ自動スクロールするか
-const PXH = 60;                         // 時間軸: 1時間の高さ(px)
+let PXH = 60;                           // 時間軸: 1時間の高さ(px)。目盛りをドラッグしてズーム＝保存
+try{ const _v = +localStorage.getItem("cal_pxh"); if(_v>=18 && _v<=90) PXH = _v; }catch(e){}
+const PXH_MIN = 18, PXH_MAX = 90;       // ズームの下限/上限（px/時）
+function clampPXH(v){ return Math.max(PXH_MIN, Math.min(PXH_MAX, Math.round(v))); }
+function savePXH(){ try{ localStorage.setItem("cal_pxh", PXH); }catch(e){} }
 const MINEV_H = 15;                     // 予定ブロックの最小の高さ(px)。15分=15pxまで縮小が見える
 
 /* ============================================================
@@ -964,6 +970,10 @@ function renderView(){
     viewEl.querySelectorAll(".tl-grid, .d3col").forEach(g=>{
       g.addEventListener("pointerdown", ev=> gridPointerDown(ev, g, g.dataset.date));
     });
+    // 左の時刻ガターを上下ドラッグ=全体ズーム（PXH伸縮）
+    viewEl.querySelectorAll(".tl-zoom, .d3gutter").forEach(g=>{
+      g.addEventListener("pointerdown", zoomPointerDown);
+    });
   }
   updateNowBtn();                        // まず確実に表示（rAF抑制時の保険）
   requestAnimationFrame(()=>{
@@ -999,6 +1009,35 @@ function dragTip(x, y, text){
   _dragTipEl.style.display = "block";
 }
 function hideDragTip(){ if(_dragTipEl) _dragTipEl.style.display = "none"; }
+
+/* 時刻ガター(左の目盛り)を上下ドラッグ → 1時間の高さ(PXH)を変える＝1日全体を伸縮ズーム。
+   上へドラッグ=縮む／下へ=広がる。再描画で目盛りも予定も一律に伸縮。値は保存。 */
+function zoomPointerDown(ev){
+  if(ev.button) return;
+  ev.preventDefault(); ev.stopPropagation();        // 新規作成ドラッグを抑制
+  const startY = ev.clientY, startPXH = PXH;
+  let pending = PXH, raf = 0;
+  try{ viewEl.setPointerCapture(ev.pointerId); }catch(_){}   // 再描画で目盛り要素が入れ替わっても追従（viewEl自体は残る）
+  const apply = ()=>{ raf = 0; if(pending !== PXH){ PXH = pending; renderView(); dragTip(_zx, _zy, Math.round(PXH)+"px/時"); } };
+  let _zx = ev.clientX, _zy = ev.clientY;
+  const move = me=>{
+    _zx = me.clientX; _zy = me.clientY;
+    pending = clampPXH(startPXH + (me.clientY - startY) * 0.25);   // 上ドラッグ(負)で縮む
+    if(!raf) raf = requestAnimationFrame(apply);
+  };
+  const up = ()=>{
+    document.removeEventListener("pointermove", move);
+    document.removeEventListener("pointerup", up);
+    document.removeEventListener("pointercancel", up);
+    if(raf){ cancelAnimationFrame(raf); raf = 0; }
+    if(pending !== PXH){ PXH = pending; }
+    savePXH(); hideDragTip(); renderView();
+    try{ viewEl.releasePointerCapture(ev.pointerId); }catch(_){}
+  };
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", up);
+  document.addEventListener("pointercancel", up);
+}
 let localSeq = 0;   // モック時に作った予定の一時ID用
 /* この予定をツール上で編集（移動/長さ変更/名前/削除）してよいか
    ・終日/複数日はダメ（見るだけ）・繰り返しはダメ・focusTimeやtask等の特殊タイプはダメ
@@ -1086,7 +1125,7 @@ function renderScroll(days){
         <div class="${lblCls}"><span class="dn">${+d.split("-")[2]}</span><span class="dw">${WK[k]}曜日 · ${md(d)}</span></div>
         ${ad ? `<div class="tl-allday"><span class="tl-adlabel">終日</span>${ad}</div>` : ""}
       </div>
-      <div class="tl-grid" data-date="${d}" style="height:${24*PXH}px">${hoursCol()}${nowLine}${evs}</div>
+      <div class="tl-grid" data-date="${d}" style="height:${24*PXH}px"><div class="tl-zoom" aria-hidden="true"></div>${hoursCol()}${nowLine}${evs}</div>
     </section>`;
   }).join("") + `</div>`;
 }
