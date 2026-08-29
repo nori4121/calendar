@@ -180,8 +180,6 @@
   .ad.pout.done{box-shadow:0 0 0 3px var(--ink-faint)}   /* 済は枠も薄墨に */
   .ad.done{border-left-color:var(--gray)!important;background:#F1F1EE!important;color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--gray)}
   .tl-grid{position:relative;margin-left:56px;border-left:1px solid var(--grid-strong)}
-  /* 左の時刻ガター上に重ねる掴みストリップ：上下ドラッグで全体ズーム */
-  .tl-zoom{position:absolute;left:-56px;top:0;width:56px;height:100%;z-index:2;cursor:ns-resize;touch-action:none}
   .tl-hour{position:absolute;left:0;right:0;border-top:1px solid var(--grid)}
   .tl-hour.h6,.tl-hour.h12,.tl-hour.h18{border-top-color:var(--grid-strong)}
   .tl-hour span{position:absolute;left:-54px;top:-7px;width:48px;text-align:right;
@@ -224,6 +222,13 @@
   .reloadbtn{background:var(--paper);color:var(--ink);border:1px solid var(--ink);font-size:21px;line-height:1}
   .reloadbtn:hover{background:var(--ink);color:var(--paper)}
   .addbtn:hover{background:var(--shu-deep)}
+  /* 時間軸ズームつまみ：左端に固定。ここだけ touch-action:none なのでスクロールと競合しない */
+  .zoomknob{position:fixed;left:8px;top:50%;transform:translateY(-50%);z-index:30;
+    width:30px;height:52px;border-radius:15px;cursor:ns-resize;touch-action:none;user-select:none;
+    display:none;align-items:center;justify-content:center;font-size:17px;line-height:1;
+    background:var(--paper);color:var(--ink-soft);border:1px solid var(--border);
+    box-shadow:0 3px 10px -3px rgba(0,0,0,.4)}
+  .zoomknob:hover,.zoomknob.dragging{background:var(--ink);color:var(--paper)}
 
   /* ---- ドラッグで新規作成する時の選択ボックス ---- */
   .tl-creating{position:absolute;left:1px;right:1px;z-index:8;pointer-events:none;
@@ -269,7 +274,7 @@
   .d3adrow{border-bottom:1px solid var(--grid-strong)}
   .d3adlabel{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-align:right;padding:6px 6px 0;align-self:start;position:sticky;left:0;z-index:7;background:var(--paper)}
   .d3adcell{border-left:1px solid var(--grid);padding:3px;display:flex;flex-direction:column;gap:3px;min-height:22px}
-  .d3gutter{position:sticky;left:0;z-index:7;background:var(--paper);cursor:ns-resize;touch-action:none}   /* 時刻ガターを左に固定＋上下ドラッグで全体ズーム */
+  .d3gutter{position:sticky;left:0;z-index:7;background:var(--paper)}   /* 時刻ガターを左に固定（横スクロールしても見える） */
   .d3hr{position:absolute;right:6px;transform:translateY(-50%);font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
   .d3col{position:relative;border-left:1px solid var(--grid)}
   .d3col.today{background:rgba(255,255,255,.55)}
@@ -552,6 +557,9 @@
   <button id="nowBtn" class="fab nowbtn" title="現在時刻へ戻る" aria-label="現在時刻へ戻る">今</button>
 </div>
 
+<!-- 時間軸ズームつまみ：上下ドラッグで1日全体を伸縮（スクロールとは競合しない） -->
+<div id="zoomKnob" class="zoomknob" title="上下ドラッグで時間軸を拡大縮小" aria-label="時間軸ズーム">⇕</div>
+
 <!-- Google Identity Services -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 
@@ -570,7 +578,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b62";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b63";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -682,6 +690,8 @@ function mockEvents(){
    描画
    ============================================================ */
 const viewEl = document.getElementById("view");
+const zoomKnob = document.getElementById("zoomKnob");
+zoomKnob.addEventListener("pointerdown", zoomPointerDown);   // 左端つまみ＝時間軸ズーム（1度だけ配線・再描画で消えない）
 
 function calById(id){ return calendars.find(c=>c.id===id); }
 
@@ -970,11 +980,8 @@ function renderView(){
     viewEl.querySelectorAll(".tl-grid, .d3col").forEach(g=>{
       g.addEventListener("pointerdown", ev=> gridPointerDown(ev, g, g.dataset.date));
     });
-    // 左の時刻ガターを上下ドラッグ=全体ズーム（PXH伸縮）
-    viewEl.querySelectorAll(".tl-zoom, .d3gutter").forEach(g=>{
-      g.addEventListener("pointerdown", zoomPointerDown);
-    });
   }
+  zoomKnob.style.display = (mode==="scroll" || mode==="week7") ? "flex" : "none";   // 時間軸ビューだけズームつまみを表示
   updateNowBtn();                        // まず確実に表示（rAF抑制時の保険）
   requestAnimationFrame(()=>{
     if(pendingScrollNow){ pendingScrollNow=false; scrollToNow(false); }
@@ -1010,19 +1017,23 @@ function dragTip(x, y, text){
 }
 function hideDragTip(){ if(_dragTipEl) _dragTipEl.style.display = "none"; }
 
-/* 時刻ガター(左の目盛り)を上下ドラッグ → 1時間の高さ(PXH)を変える＝1日全体を伸縮ズーム。
-   上へドラッグ=縮む／下へ=広がる。再描画で目盛りも予定も一律に伸縮。値は保存。 */
+/* 左端の専用つまみ(#zoomKnob)を上下ドラッグ → 1時間の高さ(PXH)を変える＝1日全体を伸縮ズーム。
+   上へドラッグ=縮む／下へ=広がる。つまみだけ touch-action:none なのでページのスクロールとは競合しない。値は保存。 */
 function zoomPointerDown(ev){
   if(ev.button) return;
-  ev.preventDefault(); ev.stopPropagation();        // 新規作成ドラッグを抑制
+  ev.preventDefault();
   const startY = ev.clientY, startPXH = PXH;
-  let pending = PXH, raf = 0;
-  try{ viewEl.setPointerCapture(ev.pointerId); }catch(_){}   // 再描画で目盛り要素が入れ替わっても追従（viewEl自体は残る）
-  const apply = ()=>{ raf = 0; if(pending !== PXH){ PXH = pending; renderView(); dragTip(_zx, _zy, Math.round(PXH)+"px/時"); } };
-  let _zx = ev.clientX, _zy = ev.clientY;
+  let pending = PXH, raf = 0, tx = ev.clientX, ty = ev.clientY;
+  zoomKnob.classList.add("dragging");
+  try{ zoomKnob.setPointerCapture(ev.pointerId); }catch(_){}   // つまみは再描画で消えないので追従は安定
+  const apply = ()=>{
+    raf = 0;
+    if(pending !== PXH){ PXH = pending; renderView(); }
+    dragTip(Math.max(tx, 84), ty, Math.round(PXH) + "px/時");   // 左端で見切れないよう少し右に出す
+  };
   const move = me=>{
-    _zx = me.clientX; _zy = me.clientY;
-    pending = clampPXH(startPXH + (me.clientY - startY) * 0.25);   // 上ドラッグ(負)で縮む
+    tx = me.clientX; ty = me.clientY;
+    pending = clampPXH(startPXH + (me.clientY - startY) * 0.35);   // 上ドラッグ(負)で縮む
     if(!raf) raf = requestAnimationFrame(apply);
   };
   const up = ()=>{
@@ -1031,8 +1042,8 @@ function zoomPointerDown(ev){
     document.removeEventListener("pointercancel", up);
     if(raf){ cancelAnimationFrame(raf); raf = 0; }
     if(pending !== PXH){ PXH = pending; }
-    savePXH(); hideDragTip(); renderView();
-    try{ viewEl.releasePointerCapture(ev.pointerId); }catch(_){}
+    savePXH(); hideDragTip(); zoomKnob.classList.remove("dragging"); renderView();
+    try{ zoomKnob.releasePointerCapture(ev.pointerId); }catch(_){}
   };
   document.addEventListener("pointermove", move);
   document.addEventListener("pointerup", up);
@@ -1125,7 +1136,7 @@ function renderScroll(days){
         <div class="${lblCls}"><span class="dn">${+d.split("-")[2]}</span><span class="dw">${WK[k]}曜日 · ${md(d)}</span></div>
         ${ad ? `<div class="tl-allday"><span class="tl-adlabel">終日</span>${ad}</div>` : ""}
       </div>
-      <div class="tl-grid" data-date="${d}" style="height:${24*PXH}px"><div class="tl-zoom" aria-hidden="true"></div>${hoursCol()}${nowLine}${evs}</div>
+      <div class="tl-grid" data-date="${d}" style="height:${24*PXH}px">${hoursCol()}${nowLine}${evs}</div>
     </section>`;
   }).join("") + `</div>`;
 }
