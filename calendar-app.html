@@ -578,7 +578,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b63";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b64";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -601,6 +601,7 @@ try{ taskSched = JSON.parse(localStorage.getItem("cal_tasksched")||"{}") || {}; 
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tokyo";
 let mode = "scroll";                    // "scroll"(一枚もの) | "week7"(7日) | "stats"(集計)
 let pendingScrollNow = false;           // 次の描画後に現在時刻へ自動スクロールするか
+let scrollNowAfterBanner = false;       // 一言テキスト到着でバナー高さが変わった後、現在時刻へ再スクロール
 let PXH = 60;                           // 時間軸: 1時間の高さ(px)。目盛りをドラッグしてズーム＝保存
 try{ const _v = +localStorage.getItem("cal_pxh"); if(_v>=18 && _v<=90) PXH = _v; }catch(e){}
 const PXH_MIN = 18, PXH_MAX = 90;       // ズームの下限/上限（px/時）
@@ -1897,8 +1898,9 @@ async function loadLive(){
     }
     events = all;
     pendingScrollNow = true;              // 接続直後は現在時刻へ寄せる
+    scrollNowAfterBanner = true;          // 一言が届いてバナー高さが変わったら、もう一度現在時刻へ寄せ直す
     renderCals(); renderView();
-    loadBannerRemote();                   // 一言スペースの共有文章をGoogleから取得
+    loadBannerRemote();                   // 一言スペースの共有文章をGoogleから取得（届くとバナー高さが変わる）
     toast("読み込み完了（"+events.length+"件）");
   }catch(err){
     const msg = String(err.message||err);
@@ -2066,8 +2068,12 @@ document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) refresh
 function scrollToNow(smooth){
   const el = document.querySelector(".tl-now");
   if(!el) return;
+  // 固定バナー(済チェック＋一言など)は上部を覆うので、現在時刻線はその「下」に出す。
+  const banner = document.querySelector(".banner");
+  const bh = (banner && getComputedStyle(banner).position === "sticky") ? banner.getBoundingClientRect().height : 0;
+  const desiredTop = bh + 24;                                      // 固定バナーのすぐ下＋余白（隠れないように）
   const r = el.getBoundingClientRect();
-  const target = window.scrollY + r.top - window.innerHeight/3;   // 画面の上から1/3あたりへ
+  const target = window.scrollY + r.top - desiredTop;
   window.scrollTo({ top: Math.max(0, target), behavior: smooth ? "smooth" : "auto" });
 }
 function updateNowBtn(){
@@ -2207,7 +2213,11 @@ async function loadBannerRemote(){
     if(el && document.activeElement !== el){    // 編集中でなければ反映
       el.value = t;
       try{ localStorage.setItem("cal_banner", t); }catch(e){}
-      fitBanner();
+      fitBanner();                              // ← ここでバナーの高さが変わる
+    }
+    if(scrollNowAfterBanner){                   // 高さ確定後に現在時刻へ寄せ直す（初回読み込み時のみ）
+      scrollNowAfterBanner = false;
+      requestAnimationFrame(()=> scrollToNow(false));
     }
     // ローカル済＋マトリクス配置（description に JSON で保存してある）を取り込む
     try{ const d = JSON.parse(ev.description || "{}");
