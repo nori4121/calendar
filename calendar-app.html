@@ -578,7 +578,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b66";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b67";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -2068,10 +2068,17 @@ document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) refresh
 function scrollToNow(smooth){
   const el = document.querySelector(".tl-now");
   if(!el) return;
-  // 固定バナー(済チェック＋一言など)は上部を覆うので、現在時刻線はその「下」に出す。
+  // 上部には「固定バナー(済チェック＋一言)」と、その下に貼り付く「日付見出し(sticky)」が重なる。
+  // 現在時刻線がそれらの裏に隠れないよう、両方の“下”に出す。
   const banner = document.querySelector(".banner");
   const bh = (banner && getComputedStyle(banner).position === "sticky") ? banner.getBoundingClientRect().height : 0;
-  const desiredTop = bh + 24;                                      // 固定バナーのすぐ下＋余白（隠れないように）
+  let headBottom = bh;                                             // 上に貼り付く見出しの下端
+  const day = el.closest(".tl-day");
+  const head = day ? day.querySelector(".tl-dayhead") : document.querySelector(".d3head");
+  if(head && getComputedStyle(head).position === "sticky"){
+    headBottom = bh + head.getBoundingClientRect().height;        // バナー＋日付見出しの高さ
+  }
+  const desiredTop = headBottom + 16;                             // 見出しのすぐ下＋余白
   const r = el.getBoundingClientRect();
   const target = window.scrollY + r.top - desiredTop;
   window.scrollTo({ top: Math.max(0, target), behavior: smooth ? "smooth" : "auto" });
