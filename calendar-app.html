@@ -132,7 +132,7 @@
     display:block;width:100%;box-sizing:border-box;
     font-family:var(--gothic);font-size:14px;line-height:1.7;color:var(--ink);
     background:#fff;border:1px solid var(--grid-strong);border-radius:3px;
-    padding:9px 13px;outline:none;resize:none;overflow:hidden;
+    padding:9px 13px;outline:none;resize:none;overflow-y:auto;max-height:32vh;   /* 伸びすぎ防止＝画面上部を覆わない。超えたら中でスクロール */
     white-space:pre-wrap;word-break:break-word;
     box-shadow:0 1px 4px -2px rgba(0,0,0,.28)
   }
@@ -245,8 +245,8 @@
   .dragtip{position:fixed;z-index:60;pointer-events:none;background:var(--ink);color:var(--paper);
     font-family:var(--mono);font-size:11.5px;padding:3px 7px;border-radius:5px;white-space:nowrap;
     box-shadow:0 3px 10px -2px rgba(0,0,0,.5);transform:translate(-50%,-140%)}
-  .tl-now{position:absolute;left:0;right:0;height:3px;background:#EA3B2E;z-index:9;pointer-events:none;box-shadow:0 0 5px rgba(234,59,46,.55)}
-  .tl-now::before{content:"";position:absolute;left:-6px;top:-4px;width:12px;height:12px;border-radius:50%;background:#EA3B2E;box-shadow:0 0 0 2px var(--paper)}
+  .tl-now{position:absolute;left:0;right:0;height:2px;background:var(--shu);z-index:7;pointer-events:none}
+  .tl-now::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--shu)}
   /* 赤線に添える日付ラベル（時刻の目盛りのあたりに赤文字2段） */
   .tl-nowlab{
     position:absolute;transform:translateY(-50%);z-index:9;pointer-events:none;
@@ -578,7 +578,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b65";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b66";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
