@@ -21,6 +21,8 @@
     --shu:#B4472F;
     --shu-deep:#8E3722;
     --gray:#9AA0A6;               /* 済(灰色) の表示色 */
+    --warn:#9A6B1F;               /* 注意(琥珀) */
+    --warn-bg:#F7EEDB;
     --gothic:"BIZ UDPGothic","Meiryo","Yu Gothic Medium","Yu Gothic","Hiragino Kaku Gothic ProN","Noto Sans JP","Noto Sans CJK JP",sans-serif;
     --mincho:"BIZ UDPGothic","Meiryo","Yu Gothic Medium","Yu Gothic","Hiragino Kaku Gothic ProN","Noto Sans JP","Noto Sans CJK JP",sans-serif;
     --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Noto Sans Mono CJK JP",monospace;
@@ -80,6 +82,7 @@
   }
   .calchip .sw{width:10px;height:10px;border-radius:2px;flex:0 0 10px}
   .calchip.off{opacity:.4;text-decoration:line-through;text-decoration-thickness:1px}
+  .calchip .unfincb{width:14px;height:14px;margin:0;cursor:pointer;accent-color:var(--warn);flex:0 0 14px}  /* ☑=未済集計の対象 */
 
   /* ---- lane grid ---- */
   .weekblock{margin-bottom:30px}
@@ -157,6 +160,11 @@
   .tl-daylabel.sun .dn,.tl-daylabel.sun .dw{color:var(--shu)}
   .tl-daylabel.sat .dn,.tl-daylabel.sat .dw{color:#3F5A73}
   .tl-daylabel.today .dn{background:var(--shu);color:#fff;border-radius:999px;padding:2px 9px}
+  /* 前週の未済ありを知らせるバッジ（今日の見出しに出す） */
+  .unfin-badge{font-family:var(--gothic);font-size:11px;font-weight:600;color:var(--warn);
+    background:var(--warn-bg);border:1px solid var(--warn);border-radius:999px;padding:1px 9px;
+    margin-left:8px;white-space:nowrap;letter-spacing:.02em}
+  .unfin-badge.d3{font-size:9.5px;padding:0 5px;margin-left:4px}
   /* 日ヘッダー（日付＋終日）を、その日を見ている間ずっと上に貼り付ける（sticky） */
   .tl-dayhead{position:sticky;top:var(--bannerH,0);z-index:12;background:var(--paper);
     border-bottom:1px solid var(--grid-strong);padding-bottom:6px}
@@ -578,7 +586,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b67";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b68";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -598,6 +606,16 @@ let matrixTags = null;                    // マトリクスに載せるタグ(T
 try{ const a=JSON.parse(localStorage.getItem("cal_matrixtags")||"null"); if(Array.isArray(a)) matrixTags=new Set(a); }catch(e){}
 let taskSched = {};                        // タスク⇔カレンダー予定の紐づけ taskId->{calId,eventId,date,time,end}
 try{ taskSched = JSON.parse(localStorage.getItem("cal_tasksched")||"{}") || {}; }catch(e){}
+let unfinCals = new Set();                  // 「未済あり」集計の対象カレンダーID（上部でチェック選択）
+try{ const a=JSON.parse(localStorage.getItem("cal_unfincals")||"null"); if(Array.isArray(a)) unfinCals=new Set(a); }catch(e){}
+function saveUnfinCals(){ try{ localStorage.setItem("cal_unfincals", JSON.stringify([...unfinCals])); }catch(e){} }
+// 前日〜1週間前で、対象カレンダーの「済でない」予定の件数
+function countUnfinished(){
+  if(!unfinCals.size) return 0;
+  const t = parseYmd(TODAY);
+  const y0 = ymd(addDays(t, -7)), y1 = ymd(addDays(t, -1));   // 1週間前〜前日（今日は含まない）
+  return events.filter(e=> unfinCals.has(e.calId) && !e.done && e.date>=y0 && e.date<=y1).length;
+}
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tokyo";
 let mode = "scroll";                    // "scroll"(一枚もの) | "week7"(7日) | "stats"(集計)
 let pendingScrollNow = false;           // 次の描画後に現在時刻へ自動スクロールするか
@@ -638,7 +656,9 @@ function daysToShow(){
 function fetchRange(){
   const ds = daysToShow();                                   // 表示中の日付（モード別）をそのまま取得範囲に
   const first = parseYmd(ds[0]), last = parseYmd(ds[ds.length-1]);
-  const timeMin = new Date(first.getFullYear(), first.getMonth(), first.getDate(), 0,0,0,0);
+  let timeMin = new Date(first.getFullYear(), first.getMonth(), first.getDate(), 0,0,0,0);
+  const weekBack = addDays(parseYmd(TODAY), -7);             // 「未済あり」集計のため過去1週間も必ず取得
+  if(weekBack < timeMin) timeMin = weekBack;
   const timeMax = addDays(last, 1);
   return { timeMin, timeMax };
 }
@@ -715,10 +735,19 @@ function renderCals(){
   const el = document.getElementById("cals");
   el.innerHTML = calendars.map(c=>
     `<span class="calchip${c.off?" off":""}" data-cal="${esc(c.id)}">
+       <input type="checkbox" class="unfincb" data-cal="${esc(c.id)}" title="このカレンダーの前週の未済を「未済あり」に集計する"${unfinCals.has(c.id)?" checked":""}>
        <span class="sw" style="background:${c.color}"></span>${esc(c.name)}</span>`).join("");
   el.querySelectorAll(".calchip").forEach(ch=>{
-    ch.addEventListener("click",()=>{
+    ch.addEventListener("click",(e)=>{
+      if(e.target.classList.contains("unfincb")) return;      // チェックは表示ON/OFFと別扱い
       const c = calById(ch.dataset.cal); c.off = !c.off; renderCals(); renderView();
+    });
+  });
+  el.querySelectorAll(".unfincb").forEach(cb=>{
+    cb.addEventListener("click", e=> e.stopPropagation());     // チェック操作で表示を切り替えない
+    cb.addEventListener("change", ()=>{
+      if(cb.checked) unfinCals.add(cb.dataset.cal); else unfinCals.delete(cb.dataset.cal);
+      saveUnfinCals(); renderView();                            // 「未済あり」を再集計
     });
   });
 }
@@ -1123,6 +1152,7 @@ const hoursCol = () => Array.from({length:25}, (_,h)=>
 function renderScroll(days){
   const vis = visibleEvents();
   const nm = nowMinutes();
+  const unfin = countUnfinished();                              // 前週の未済件数（今日の見出しに出す）
   return `<div class="scrollwrap">` + days.map(d=>{
     const k = wdOf(d);
     const evs = timedOf(d,vis).map(evBtnHtml).join("");
@@ -1132,9 +1162,11 @@ function renderScroll(days){
       : "";
     const ad = allDayBtns(d,vis);
     const lblCls = ["tl-daylabel", k===0?"sun":k===6?"sat":"", d===TODAY?"today":""].join(" ");
+    const unfinBadge = (d===TODAY && unfin>0)
+      ? `<span class="unfin-badge" title="前日〜1週間前に、対象カレンダーで済が付いていない予定">未済あり ${unfin}件</span>` : "";
     return `<section class="tl-day">
       <div class="tl-dayhead">
-        <div class="${lblCls}"><span class="dn">${+d.split("-")[2]}</span><span class="dw">${WK[k]}曜日 · ${md(d)}</span></div>
+        <div class="${lblCls}"><span class="dn">${+d.split("-")[2]}</span><span class="dw">${WK[k]}曜日 · ${md(d)}</span>${unfinBadge}</div>
         ${ad ? `<div class="tl-allday"><span class="tl-adlabel">終日</span>${ad}</div>` : ""}
       </div>
       <div class="tl-grid" data-date="${d}" style="height:${24*PXH}px">${hoursCol()}${nowLine}${evs}</div>
@@ -1147,10 +1179,12 @@ function renderDay3(days){
   const vis = visibleEvents();
   const nm = nowMinutes();
   const H = 24*PXH;
+  const unfin = countUnfinished();
   const heads = days.map(d=>{
     const k = wdOf(d);
     const cls = ["d3dh", k===0?"sun":k===6?"sat":"", d===TODAY?"today":""].join(" ");
-    return `<div class="${cls}"><span class="d3dn">${+d.split("-")[2]}</span><span class="d3dw">${WK[k]}</span></div>`;
+    const ub = (d===TODAY && unfin>0) ? `<span class="unfin-badge d3" title="前日〜1週間前の未済">未済${unfin}</span>` : "";
+    return `<div class="${cls}"><span class="d3dn">${+d.split("-")[2]}</span><span class="d3dw">${WK[k]}</span>${ub}</div>`;
   }).join("");
   const hasAd = days.some(d=>vis.some(e=>onDay(e,d) && (e.allDay || !e.time)));
   const adRow = days.map(d=>`<div class="d3adcell">${allDayBtns(d,vis)}</div>`).join("");
