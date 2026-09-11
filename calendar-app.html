@@ -432,6 +432,28 @@
   .hw-aside{position:sticky;top:calc(var(--bannerH,130px) + 8px);align-self:flex-start;
     max-height:calc(100vh - var(--bannerH,130px) - 24px);overflow:auto;
     padding:0 2px 24px 20px;border-left:1px solid var(--grid);flex:1 1 auto;min-width:0}
+  /* 「宿題表示」チェックはスマホ(狭い画面)だけ出す。広い画面は右パネル常時表示なので隠す */
+  @media (min-width:1100px){ .hw-toggle{display:none} }
+  /* ---- スマホ：上下2分割（上=カレンダー／下=宿題を下端に固定シート／境界を上下ドラッグで割合変更）---- */
+  @media (max-width:1099px){
+    :root[data-hw="1"][data-mode="scroll"] .hw-aside,
+    :root[data-hw="1"][data-mode="week7"]  .hw-aside{
+      display:block;position:fixed;left:0;right:0;bottom:0;top:auto;
+      height:var(--split-bottom,42vh);max-height:85vh;min-height:70px;overflow:auto;
+      background:var(--paper);border-top:2px solid var(--grid-strong);border-left:none;
+      z-index:20;padding:10px 16px 22px;margin:0;box-shadow:0 -4px 14px -6px rgba(0,0,0,.35)}
+    :root[data-hw="1"][data-mode="scroll"] .split-divider,
+    :root[data-hw="1"][data-mode="week7"]  .split-divider{
+      display:block;position:fixed;left:0;right:0;bottom:var(--split-bottom,42vh);top:auto;
+      height:18px;cursor:row-resize;z-index:21;flex:none}
+    :root[data-hw="1"][data-mode="scroll"] .split-divider::before,
+    :root[data-hw="1"][data-mode="week7"]  .split-divider::before{
+      left:50%;top:6px;bottom:auto;transform:translateX(-50%);width:46px;height:3px}
+    :root[data-hw="1"][data-mode="scroll"] .wrap,
+    :root[data-hw="1"][data-mode="week7"]  .wrap{padding-bottom:calc(var(--split-bottom,42vh) + 16px)}
+    :root[data-hw="1"][data-mode="scroll"] .fabs,
+    :root[data-hw="1"][data-mode="week7"]  .fabs{bottom:calc(var(--split-bottom,42vh) + 12px)}
+  }
 
   footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--grid-strong);font-size:12px;color:var(--ink-soft)}
   footer code{font-family:var(--mono);font-size:11.5px;background:rgba(255,255,255,.8);padding:1px 4px}
@@ -505,6 +527,7 @@
 
 <div class="banner">
   <label class="banner-toggle"><input type="checkbox" id="showDone"> 済を表示する</label>
+  <label class="banner-toggle hw-toggle"><input type="checkbox" id="showHw"> 宿題表示</label>
   <textarea class="bannertext" id="bannerText" rows="1"
     placeholder="タップして一言を（備忘録・座右の銘など）"></textarea>
 </div>
@@ -626,7 +649,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b72";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b73";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -638,6 +661,9 @@ let calendars = [];               // [{id, name, color, off}]
 let events = [];                  // 正規化済みイベント
 let anchor = new Date();                // 表示の基準日（既定は今日）
 let showDone = false;                   // 済は既定で非表示。チェックで表示する
+let showHw = false;                     // スマホで「宿題表示」ON→下に宿題パネル（上下分割）
+try{ showHw = localStorage.getItem("cal_showhw")==="1"; }catch(e){}
+function applyHwFlag(){ document.documentElement.setAttribute("data-hw", showHw?"1":"0"); }   // CSSの上下分割スイッチ
 let matrixPos = {};                     // マトリクス配置 eventId -> {x,y}(0..1)
 try{ matrixPos = JSON.parse(localStorage.getItem("cal_matrixpos")||"{}") || {}; }catch(e){}
 let matrixCals = null;                   // (旧) 未使用
@@ -2090,6 +2116,18 @@ document.getElementById("prev").addEventListener("click", ()=>{ anchor = addDays
 document.getElementById("next").addEventListener("click", ()=>{ anchor = addDays(anchor,  navStep()); refresh(); });
 document.getElementById("today").addEventListener("click", ()=>{ anchor = new Date(); pendingScrollNow = true; refresh(); });
 document.getElementById("showDone").addEventListener("change", e=>{ showDone=e.target.checked; renderView(); });
+(function initShowHw(){
+  const cb = document.getElementById("showHw");
+  if(cb) cb.checked = showHw;
+  applyHwFlag();
+  if(cb) cb.addEventListener("change", e=>{
+    showHw = e.target.checked;
+    try{ localStorage.setItem("cal_showhw", showHw?"1":"0"); }catch(_){}
+    applyHwFlag();
+    renderView();                 // 宿題パネルの中身を用意
+    requestAnimationFrame(positionFabs);
+  });
+})();
 document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeSheet(); });
 
 function refresh(){ if(LIVE) loadLive(); else renderView(); }
@@ -2198,17 +2236,30 @@ function positionFabs(){
   let splitLeft = 640;
   try{ const v = parseInt(localStorage.getItem("cal_splitleft")||"", 10); if(v>=360 && v<=1200) splitLeft = v; }catch(e){}
   document.documentElement.style.setProperty("--split-left", splitLeft+"px");
+  let splitBottom = null;   // スマホ上下分割の下段(宿題)の高さ(px)。null=CSS既定(42vh)を使う
+  try{ const v = parseInt(localStorage.getItem("cal_splitbottom")||"", 10); if(v>=90){ splitBottom = v; document.documentElement.style.setProperty("--split-bottom", v+"px"); } }catch(e){}
+  const 縦分割か = () => window.matchMedia("(max-width:1099px)").matches;   // スマホ=上下 / PC=左右
   divider.addEventListener("pointerdown", ev=>{
     if(ev.button) return;
     ev.preventDefault();
     divider.classList.add("drag");
-    const startX = ev.clientX, startW = splitLeft;
+    const vert = 縦分割か();
+    const startX = ev.clientX, startY = ev.clientY, startW = splitLeft;
+    const startB = (splitBottom != null) ? splitBottom
+                 : Math.round(document.getElementById("hwAside").getBoundingClientRect().height);   // 未設定時は今の実高さから
     try{ divider.setPointerCapture(ev.pointerId); }catch(_){}
     const move = me=>{
-      const rowW = row.getBoundingClientRect().width;
-      const maxW = Math.max(360, rowW - 280);              // 右パネルに最低280px残す
-      splitLeft = Math.max(360, Math.min(startW + (me.clientX - startX), maxW));
-      document.documentElement.style.setProperty("--split-left", splitLeft+"px");
+      if(vert){
+        // 上へドラッグ=下段(宿題)を広げる。画面の下端0〜85%の範囲
+        const maxB = Math.round(window.innerHeight * 0.85);
+        splitBottom = Math.max(90, Math.min(startB + (startY - me.clientY), maxB));
+        document.documentElement.style.setProperty("--split-bottom", splitBottom+"px");
+      }else{
+        const rowW = row.getBoundingClientRect().width;
+        const maxW = Math.max(360, rowW - 280);            // 右パネルに最低280px残す
+        splitLeft = Math.max(360, Math.min(startW + (me.clientX - startX), maxW));
+        document.documentElement.style.setProperty("--split-left", splitLeft+"px");
+      }
       positionFabs();
     };
     const up = ()=>{
@@ -2216,7 +2267,10 @@ function positionFabs(){
       document.removeEventListener("pointerup", up);
       document.removeEventListener("pointercancel", up);
       divider.classList.remove("drag");
-      try{ localStorage.setItem("cal_splitleft", String(Math.round(splitLeft))); }catch(e){}
+      try{
+        if(vert) localStorage.setItem("cal_splitbottom", String(Math.round(splitBottom)));
+        else     localStorage.setItem("cal_splitleft",  String(Math.round(splitLeft)));
+      }catch(e){}
       try{ divider.releasePointerCapture(ev.pointerId); }catch(_){}
       positionFabs();
     };
