@@ -626,7 +626,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b71";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b72";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -2375,14 +2375,14 @@ async function loadHomeworkRemote(){
     const q = new URLSearchParams({ privateExtendedProperty:"calappHomework=1", maxResults:"1", singleEvents:"true" });
     const data = await api("/calendars/primary/events?"+q.toString());
     const ev = (data.items||[])[0];
-    if(!ev){ homeworkData = { items:[] }; if(mode==="homework") renderView(); return; }
+    if(!ev){ homeworkData = { items:[] }; if(mode==="homework"||mode==="scroll"||mode==="week7") renderView(); return; }
     homeworkEventId = ev.id;
     let parsed = { items:[] };
     try{ parsed = JSON.parse(ev.description||"{}"); }catch(e){ parsed = { items:[] }; }
     if(!parsed || typeof parsed!=="object") parsed = { items:[] };
     if(!Array.isArray(parsed.items)) parsed.items = [];
     homeworkData = parsed;
-    if(mode==="homework") renderView();
+    if(mode==="homework"||mode==="scroll"||mode==="week7") renderView();
   }catch(e){}
 }
 /* 宿題箱へ書き込む（無ければ2000-01-01の終日イベントとして作成＝表示範囲外で隠れる） */
