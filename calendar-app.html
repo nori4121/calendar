@@ -407,6 +407,25 @@
   .hw-item:last-child{border-bottom:none}
   .hw-note{font-size:12px;color:var(--ink-faint);margin:0 0 3px;line-height:1.5}
   .hw-text{font-size:14.5px;color:var(--ink);line-height:1.6}
+  /* ---- 2ペイン（左カレンダー｜境界ドラッグ｜右 宿題）: 広い画面のみ ---- */
+  .split{display:block}                       /* 既定は1カラム（#viewだけ） */
+  .split-divider{display:none}
+  .hw-aside{display:none}
+  .hw-aside .hw{max-width:none}
+  .hw-asidetitle{font-family:var(--mincho);font-size:15px;font-weight:600;letter-spacing:.04em;margin:0 0 12px}
+  .split-divider{flex:0 0 12px;align-self:stretch;cursor:col-resize;position:relative;background:transparent;touch-action:none}
+  .split-divider::before{content:"";position:absolute;left:5px;top:0;bottom:0;width:2px;background:var(--grid-strong)}
+  .split-divider:hover::before,.split-divider.drag::before{background:var(--ink-soft);width:3px;left:4px}
+  @media (min-width:1100px){
+    :root[data-mode="scroll"] .split,:root[data-mode="week7"] .split{display:flex;align-items:flex-start;gap:0}
+    :root[data-mode="scroll"] #view,:root[data-mode="week7"] #view{flex:0 0 var(--split-left,640px);min-width:0}
+    :root[data-mode="scroll"] #view .scrollwrap{max-width:none}
+    :root[data-mode="scroll"] .split-divider,:root[data-mode="week7"] .split-divider{display:block}
+    :root[data-mode="scroll"] .hw-aside,:root[data-mode="week7"] .hw-aside{display:block}
+  }
+  .hw-aside{position:sticky;top:calc(var(--bannerH,130px) + 8px);align-self:flex-start;
+    max-height:calc(100vh - var(--bannerH,130px) - 24px);overflow:auto;
+    padding:0 2px 24px 20px;border-left:1px solid var(--grid);flex:1 1 auto;min-width:0}
 
   footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--grid-strong);font-size:12px;color:var(--ink-soft)}
   footer code{font-family:var(--mono);font-size:11.5px;background:rgba(255,255,255,.8);padding:1px 4px}
@@ -484,7 +503,11 @@
     placeholder="タップして一言を（備忘録・座右の銘など）"></textarea>
 </div>
 
-<div id="view"></div>
+<div id="splitRow" class="split">
+  <div id="view"></div>
+  <div id="splitDivider" class="split-divider" title="ドラッグで幅を調整" aria-label="幅を調整"></div>
+  <aside id="hwAside" class="hw-aside" aria-label="宿題／タスク"></aside>
+</div>
 
 <footer>
   Googleカレンダーを正とし、表示だけをレーンに組み替えます。<b>済</b>にすると色を灰色にし、完了状態は
@@ -597,7 +620,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b69";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b70";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -1008,7 +1031,6 @@ function renderView(){
     statsWire();
   }else if(mode==="homework"){
     viewEl.innerHTML = renderHomework();
-    homeworkWire();
   }else{
     viewEl.innerHTML = (mode==="week7" ? renderDay3(days) : renderScroll(days))
                        || `<p class="empty-note">表示できる予定がありません。</p>`;
@@ -1026,6 +1048,11 @@ function renderView(){
       g.addEventListener("pointerdown", ev=> gridPointerDown(ev, g, g.dataset.date));
     });
   }
+  // 右の宿題パネル（広い画面のみCSSで表示。中身は常に用意しておく）
+  const aside = document.getElementById("hwAside");
+  if(aside) aside.innerHTML = (mode==="scroll" || mode==="week7")
+    ? `<h2 class="hw-asidetitle">宿題</h2>` + renderHomework() : "";
+  homeworkWire();                        // #hwSeed は #view か右パネルのどちらか一方だけ＝一度配線
   zoomKnob.style.display = (mode==="scroll" || mode==="week7") ? "flex" : "none";   // 時間軸ビューだけズームつまみを表示
   updateNowBtn();                        // まず確実に表示（rAF抑制時の保険）
   requestAnimationFrame(()=>{
@@ -2140,15 +2167,58 @@ function updateNowBtn(){
 /* ボタンを「カレンダー本文の右端」に合わせて置く（画面右端に飛ばさない） */
 function positionFabs(){
   const fabs = document.getElementById("fabs");
-  const anchor = document.querySelector(".banner");   // 本文と同じ幅(最大640px)
-  if(!fabs || !anchor) return;
-  const r = anchor.getBoundingClientRect();
+  if(!fabs) return;
   const w = fabs.offsetWidth || 54;
-  let left = r.right + 12;                             // 本文のすぐ右外
-  if(left + w > window.innerWidth - 10) left = window.innerWidth - w - 12;   // 画面をはみ出すなら右端へ
+  const splitOn = getComputedStyle(document.getElementById("splitRow")).display === "flex";
+  let left;
+  if(splitOn){
+    // 2ペイン時：右パネルに被らないよう、左（カレンダー）ペインの右下"内側"に置く
+    const r = document.getElementById("view").getBoundingClientRect();
+    left = r.right - w - 12;
+  }else{
+    const r = document.querySelector(".banner").getBoundingClientRect();   // 本文と同じ幅(最大640px)
+    left = r.right + 12;                               // 本文のすぐ右外（空きスペース）
+  }
+  if(left + w > window.innerWidth - 10) left = window.innerWidth - w - 12;
+  if(left < 10) left = 10;
   fabs.style.left = Math.round(left) + "px";
   fabs.style.right = "auto";
 }
+/* 2ペインの境界をドラッグ → 左（カレンダー）幅を調整、右（宿題）は残りを取る。値は保存 */
+(function setupSplit(){
+  const divider = document.getElementById("splitDivider");
+  const row = document.getElementById("splitRow");
+  if(!divider || !row) return;
+  let splitLeft = 640;
+  try{ const v = parseInt(localStorage.getItem("cal_splitleft")||"", 10); if(v>=360 && v<=1200) splitLeft = v; }catch(e){}
+  document.documentElement.style.setProperty("--split-left", splitLeft+"px");
+  divider.addEventListener("pointerdown", ev=>{
+    if(ev.button) return;
+    ev.preventDefault();
+    divider.classList.add("drag");
+    const startX = ev.clientX, startW = splitLeft;
+    try{ divider.setPointerCapture(ev.pointerId); }catch(_){}
+    const move = me=>{
+      const rowW = row.getBoundingClientRect().width;
+      const maxW = Math.max(360, rowW - 280);              // 右パネルに最低280px残す
+      splitLeft = Math.max(360, Math.min(startW + (me.clientX - startX), maxW));
+      document.documentElement.style.setProperty("--split-left", splitLeft+"px");
+      positionFabs();
+    };
+    const up = ()=>{
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", up);
+      divider.classList.remove("drag");
+      try{ localStorage.setItem("cal_splitleft", String(Math.round(splitLeft))); }catch(e){}
+      try{ divider.releasePointerCapture(ev.pointerId); }catch(_){}
+      positionFabs();
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", up);
+  });
+})();
 document.getElementById("nowBtn").addEventListener("click", ()=>{
   if(document.querySelector(".tl-now")) scrollToNow(true);          // 赤線があればそこへ
   else { anchor = new Date(); pendingScrollNow = true; refresh(); } // 範囲外なら今日へ飛んでから
