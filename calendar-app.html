@@ -400,6 +400,9 @@
   /* ---- 宿題（アウトライナー由来） ---- */
   .hw{max-width:640px}
   .hw-stamp{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);margin:0 0 16px}
+  .hw-reseed{font-family:var(--gothic);font-size:10.5px;color:var(--ink-soft);background:transparent;
+    border:1px solid var(--grid-strong);border-radius:3px;padding:1px 6px;margin-left:6px;cursor:pointer}
+  .hw-reseed:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
   .hw-doc{margin:0 0 20px}
   .hw-doctitle{font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--ink-soft);
     margin:0 0 8px;padding-bottom:4px;border-bottom:1px solid var(--grid-strong)}
@@ -407,6 +410,9 @@
   .hw-item:last-child{border-bottom:none}
   .hw-note{font-size:12px;color:var(--ink-faint);margin:0 0 3px;line-height:1.5}
   .hw-text{font-size:14.5px;color:var(--ink);line-height:1.6}
+  .hw-mark{display:inline-block;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--shu);
+    border:1px solid var(--shu);border-radius:3px;padding:0 5px;margin-right:7px;vertical-align:1px;white-space:nowrap}
+  .hw-item[style]{border-left:2px solid var(--grid-strong);padding-left:10px}   /* インデントした行は左に細い縦線 */
   /* ---- 2ペイン（左カレンダー｜境界ドラッグ｜右 宿題）: 広い画面のみ ---- */
   .split{display:block}                       /* 既定は1カラム（#viewだけ） */
   .split-divider{display:none}
@@ -620,7 +626,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b70";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b71";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -2399,10 +2405,11 @@ async function upsertHomework(obj){
 /* テスト用：サンプルの宿題を1回だけ入れて表示を確認する（本番はアウトライナーが書く。フェーズ2で撤去） */
 async function seedHomework(){
   const sample = { generated: new Date().toISOString(), items:[
-    { doc:"JFC260909", note:"例えば、海外展開・事業再編資金。▲0.65%の2.5%となる。", text:"海外展開に係る計画書の提出が必要。サンプルを西澤会長へ。" },
-    { doc:"JFC260909", text:"融資規模のイメージについて会長に確認、加藤さんにフィードバック。公庫100-200m、三菱当貸200-400。" },
-    { doc:"TASKS", text:"流山事業所の帳簿のズレのまとめ作成、西澤会長へ報告" },
-    { doc:"tasks(cal)", text:"三菱FBデータ確定（9/18支払分）" }
+    { doc:"JFC260909", mark:"やる", note:"例えば、海外展開・事業再編資金。▲0.65%の2.5%となる。", text:"海外展開に係る計画書の提出が必要。サンプルを西澤会長へ。" },
+    { doc:"JFC260909", mark:"やる", depth:1, text:"融資規模のイメージについて会長に確認、加藤さんにフィードバック。公庫100-200m、三菱当貸200-400。" },
+    { doc:"TASKS", mark:"やる", text:"流山事業所の帳簿のズレのまとめ作成、西澤会長へ報告" },
+    { doc:"TASKS", mark:"やる", depth:1, text:"加工費原価の発生を細かく管理する仕組みづくり" },
+    { doc:"tasks(cal)", mark:"やる", text:"三菱FBデータ確定（9/18支払分）" }
   ]};
   try{ await upsertHomework(sample); homeworkData = sample; renderView(); toast("テスト宿題を入れました"); }
   catch(err){ toast("失敗: "+(err.message||err)); }
@@ -2417,16 +2424,23 @@ function renderHomework(){
   }
   const groups = [], idx = {};
   items.forEach(it=>{ const d = it.doc || "（無題）"; if(!(d in idx)){ idx[d]=groups.length; groups.push([d, []]); } groups[idx[d]][1].push(it); });
-  const stamp = `<p class="hw-stamp">${homeworkData.generated ? "更新 "+esc(fmtStamp(homeworkData.generated))+"　" : ""}${items.length}件</p>`;
+  const stamp = `<p class="hw-stamp">${homeworkData.generated ? "更新 "+esc(fmtStamp(homeworkData.generated))+"　" : ""}${items.length}件 <button id="hwReseed" class="hw-reseed" title="サンプルを入れ直す（テスト用）">テスト再投入</button></p>`;
   const body = groups.map(([doc, arr])=>
     `<section class="hw-doc"><h3 class="hw-doctitle">${esc(doc)}</h3>`
-    + arr.map(it=>`<div class="hw-item">${it.note?`<div class="hw-note">${esc(it.note)}</div>`:""}<div class="hw-text">${esc(it.text||"")}</div></div>`).join("")
+    + arr.map(it=>{
+        const ind = it.depth ? ` style="margin-left:${Math.min(Math.max(+it.depth,0),8)*18}px"` : "";
+        const mark = it.mark ? `<span class="hw-mark">${esc(it.mark)}</span>` : "";
+        const note = it.note ? `<div class="hw-note">${esc(it.note)}</div>` : "";
+        return `<div class="hw-item"${ind}>${note}<div class="hw-text">${mark}${esc(it.text||"")}</div></div>`;
+      }).join("")
     + `</section>`).join("");
   return `<div class="hw">${stamp}${body}</div>`;
 }
 function homeworkWire(){
   const b = document.getElementById("hwSeed");
   if(b) b.addEventListener("click", seedHomework);
+  const r = document.getElementById("hwReseed");
+  if(r) r.addEventListener("click", seedHomework);
 }
 
 /* 保管用イベントを用意（無ければ作る）。一言 と ローカル済 を同じイベントに置く */
