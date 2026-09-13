@@ -649,7 +649,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b73";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b74";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -715,8 +715,8 @@ let TODAY = ymd(new Date());   // 日付をまたいだら tickNow() が更新�
 function daysToShow(){
   if(mode==="week7") return [0,1,2,3,4,5,6].map(i=>ymd(addDays(anchor,i)));   // 今日(anchor)から7日
   if(mode==="matrix"){ const s=mondayOf(anchor); return Array.from({length:7}, (_,i)=>ymd(addDays(s,i))); }
-  const start = mondayOf(anchor);                    // スクロールは週頭から
-  return Array.from({length:7*CONFIG.WEEKS_SHOWN}, (_,i)=>ymd(addDays(start,i)));
+  const start = addDays(mondayOf(anchor), -7);        // スクロールは「先週頭」から＝今日以前へスクロールで戻れる
+  return Array.from({length:7*(CONFIG.WEEKS_SHOWN+1)}, (_,i)=>ymd(addDays(start,i)));   // 先週＋今週＋（表示週数-1）
 }
 /* データ取得範囲（両モードを覆う広め） */
 function fetchRange(){
