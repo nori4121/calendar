@@ -413,6 +413,7 @@
   .hw-mark{display:inline-block;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--shu);
     border:1px solid var(--shu);border-radius:3px;padding:0 5px;margin-right:7px;vertical-align:1px;white-space:nowrap}
   .hw-item[style]{border-left:2px solid var(--grid-strong);padding-left:10px}   /* インデントした行は左に細い縦線 */
+  .hw-item.hi{background:#FCF3CE;border-radius:5px;border-bottom:none;padding:9px 10px;margin:3px 0}   /* インデント上げ=優先度高=黄色ハイライト */
   /* ---- 2ペイン（左カレンダー｜境界ドラッグ｜右 宿題）: 広い画面のみ ---- */
   .split{display:block}                       /* 既定は1カラム（#viewだけ） */
   .split-divider{display:none}
@@ -528,6 +529,7 @@
 <div class="banner">
   <label class="banner-toggle"><input type="checkbox" id="showDone"> 済を表示する</label>
   <label class="banner-toggle hw-toggle"><input type="checkbox" id="showHw"> 宿題表示</label>
+  <label class="banner-toggle"><input type="checkbox" id="hwHiOnly"> 高のみ</label>
   <textarea class="bannertext" id="bannerText" rows="1"
     placeholder="タップして一言を（備忘録・座右の銘など）"></textarea>
 </div>
@@ -649,7 +651,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b74";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b75";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -664,6 +666,8 @@ let showDone = false;                   // 済は既定で非表示。チェッ�
 let showHw = false;                     // スマホで「宿題表示」ON→下に宿題パネル（上下分割）
 try{ showHw = localStorage.getItem("cal_showhw")==="1"; }catch(e){}
 function applyHwFlag(){ document.documentElement.setAttribute("data-hw", showHw?"1":"0"); }   // CSSの上下分割スイッチ
+let hwHiOnly = false;                    // 宿題を「優先度高（depth0=黄色）だけ」に絞る
+try{ hwHiOnly = localStorage.getItem("cal_hwhionly")==="1"; }catch(e){}
 let matrixPos = {};                     // マトリクス配置 eventId -> {x,y}(0..1)
 try{ matrixPos = JSON.parse(localStorage.getItem("cal_matrixpos")||"{}") || {}; }catch(e){}
 let matrixCals = null;                   // (旧) 未使用
@@ -2127,6 +2131,15 @@ document.getElementById("showDone").addEventListener("change", e=>{ showDone=e.t
     renderView();                 // 宿題パネルの中身を用意
     requestAnimationFrame(positionFabs);
   });
+  const hc = document.getElementById("hwHiOnly");
+  if(hc){
+    hc.checked = hwHiOnly;
+    hc.addEventListener("change", e=>{
+      hwHiOnly = e.target.checked;
+      try{ localStorage.setItem("cal_hwhionly", hwHiOnly?"1":"0"); }catch(_){}
+      renderView();               // 宿題の絞り込みを反映
+    });
+  }
 })();
 document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeSheet(); });
 
@@ -2471,23 +2484,29 @@ async function seedHomework(){
 function renderHomework(){
   if(!LIVE) return `<p class="empty-note">Googleに接続すると宿題が表示されます。</p>`;
   if(homeworkData === null){ loadHomeworkRemote(); return `<p class="empty-note">宿題を読み込み中…</p>`; }
-  const items = homeworkData.items || [];
-  if(!items.length){
+  const all = homeworkData.items || [];
+  if(!all.length){
     return `<div class="hw"><p class="empty-note">宿題データがありません（アウトライナーからまだ書き込まれていません）。</p>
       <p><button id="hwSeed" class="btn">テスト用の宿題を入れてみる</button></p></div>`;
   }
+  const isHi = it => (+it.depth||0) === 0;               // 上げた項目(depth0)＝優先度高＝黄色
+  const items = hwHiOnly ? all.filter(isHi) : all;       // 「高のみ」で絞る
   const groups = [], idx = {};
   items.forEach(it=>{ const d = it.doc || "（無題）"; if(!(d in idx)){ idx[d]=groups.length; groups.push([d, []]); } groups[idx[d]][1].push(it); });
-  const stamp = `<p class="hw-stamp">${homeworkData.generated ? "更新 "+esc(fmtStamp(homeworkData.generated))+"　" : ""}${items.length}件 <button id="hwReseed" class="hw-reseed" title="サンプルを入れ直す（テスト用）">テスト再投入</button></p>`;
-  const body = groups.map(([doc, arr])=>
+  const cnt = hwHiOnly ? `高${items.length}件` : `${items.length}件`;
+  const stamp = `<p class="hw-stamp">${homeworkData.generated ? "更新 "+esc(fmtStamp(homeworkData.generated))+"　" : ""}${cnt} <button id="hwReseed" class="hw-reseed" title="サンプルを入れ直す（テスト用）">テスト再投入</button></p>`;
+  const body = items.length ? groups.map(([doc, arr])=>
     `<section class="hw-doc"><h3 class="hw-doctitle">${esc(doc)}</h3>`
     + arr.map(it=>{
-        const ind = it.depth ? ` style="margin-left:${Math.min(Math.max(+it.depth,0),8)*18}px"` : "";
+        const d = Math.min(Math.max(+it.depth||0,0),8);
+        const ind = d ? ` style="margin-left:${d*18}px"` : "";
+        const cls = "hw-item" + (isHi(it) ? " hi" : "");   // depth0＝黄色ハイライト
         const mark = it.mark ? `<span class="hw-mark">${esc(it.mark)}</span>` : "";
         const note = it.note ? `<div class="hw-note">${esc(it.note)}</div>` : "";
-        return `<div class="hw-item"${ind}>${note}<div class="hw-text">${mark}${esc(it.text||"")}</div></div>`;
+        return `<div class="${cls}"${ind}>${note}<div class="hw-text">${mark}${esc(it.text||"")}</div></div>`;
       }).join("")
-    + `</section>`).join("");
+    + `</section>`).join("")
+    : `<p class="empty-note">優先度高の宿題はありません。</p>`;
   return `<div class="hw">${stamp}${body}</div>`;
 }
 function homeworkWire(){
