@@ -399,21 +399,19 @@
   .empty-note{font-size:12.5px;color:var(--ink-faint);padding:14px 0}
   /* ---- 宿題（アウトライナー由来） ---- */
   .hw{max-width:640px}
-  .hw-stamp{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);margin:0 0 16px}
-  .hw-reseed{font-family:var(--gothic);font-size:10.5px;color:var(--ink-soft);background:transparent;
-    border:1px solid var(--grid-strong);border-radius:3px;padding:1px 6px;margin-left:6px;cursor:pointer}
-  .hw-reseed:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
-  .hw-doc{margin:0 0 20px}
-  .hw-doctitle{font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--ink-soft);
-    margin:0 0 8px;padding-bottom:4px;border-bottom:1px solid var(--grid-strong)}
-  .hw-item{padding:9px 2px;border-bottom:1px solid var(--grid)}
+  .hw-stamp{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin:0 0 8px}
+  .hw-stamp b{font-family:var(--gothic);font-size:13px;color:var(--ink);margin-right:6px}
+  .hw-doc{margin:0 0 10px}
+  .hw-doctitle{font-family:var(--mono);font-size:11px;letter-spacing:.03em;color:var(--ink-soft);
+    margin:0 0 3px;padding-bottom:2px;border-bottom:1px solid var(--grid-strong)}
+  .hw-item{padding:5px 2px;border-bottom:1px solid var(--grid)}
   .hw-item:last-child{border-bottom:none}
   .hw-note{font-size:12px;color:var(--ink-faint);margin:0 0 3px;line-height:1.5}
-  .hw-text{font-size:14.5px;color:var(--ink);line-height:1.6}
+  .hw-text{font-size:14px;color:var(--ink);line-height:1.45}
   .hw-mark{display:inline-block;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--shu);
     border:1px solid var(--shu);border-radius:3px;padding:0 5px;margin-right:7px;vertical-align:1px;white-space:nowrap}
   .hw-item[style]{border-left:2px solid var(--grid-strong);padding-left:10px}   /* インデントした行は左に細い縦線 */
-  .hw-item.hi{background:#FCF3CE;border-radius:5px;border-bottom:none;padding:9px 10px;margin:3px 0}   /* インデント上げ=優先度高=黄色ハイライト */
+  .hw-item.hi{background:#FCF3CE;border-radius:4px;border-bottom:none;padding:5px 9px;margin:2px 0}   /* インデント上げ=優先度高=黄色ハイライト */
   /* ---- 2ペイン（左カレンダー｜境界ドラッグ｜右 宿題）: 広い画面のみ ---- */
   .split{display:block}                       /* 既定は1カラム（#viewだけ） */
   .split-divider{display:none}
@@ -442,7 +440,7 @@
       display:block;position:fixed;left:0;right:0;bottom:0;top:auto;
       height:var(--split-bottom,42vh);max-height:85vh;min-height:70px;overflow:auto;
       background:var(--paper);border-top:2px solid var(--grid-strong);border-left:none;
-      z-index:20;padding:10px 16px 22px;margin:0;box-shadow:0 -4px 14px -6px rgba(0,0,0,.35)}
+      z-index:20;padding:6px 14px 16px;margin:0;box-shadow:0 -4px 14px -6px rgba(0,0,0,.35)}
     :root[data-hw="1"][data-mode="scroll"] .split-divider,
     :root[data-hw="1"][data-mode="week7"]  .split-divider{
       display:block;position:fixed;left:0;right:0;bottom:var(--split-bottom,42vh);top:auto;
@@ -651,7 +649,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b75";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b76";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -1086,9 +1084,8 @@ function renderView(){
   }
   // 右の宿題パネル（広い画面のみCSSで表示。中身は常に用意しておく）
   const aside = document.getElementById("hwAside");
-  if(aside) aside.innerHTML = (mode==="scroll" || mode==="week7")
-    ? `<h2 class="hw-asidetitle">宿題</h2>` + renderHomework() : "";
-  homeworkWire();                        // #hwSeed は #view か右パネルのどちらか一方だけ＝一度配線
+  if(aside) aside.innerHTML = (mode==="scroll" || mode==="week7") ? renderHomework() : "";
+  homeworkWire();                        // 宿題は読むだけ（配線なし）
   zoomKnob.style.display = (mode==="scroll" || mode==="week7") ? "flex" : "none";   // 時間軸ビューだけズームつまみを表示
   updateNowBtn();                        // まず確実に表示（rAF抑制時の保険）
   requestAnimationFrame(()=>{
@@ -2452,49 +2449,20 @@ async function loadHomeworkRemote(){
     if(mode==="homework"||mode==="scroll"||mode==="week7") renderView();
   }catch(e){}
 }
-/* 宿題箱へ書き込む（無ければ2000-01-01の終日イベントとして作成＝表示範囲外で隠れる） */
-async function upsertHomework(obj){
-  if(!LIVE) return;
-  const desc = JSON.stringify(obj);
-  if(homeworkEventId){
-    await api("/calendars/primary/events/"+encodeURIComponent(homeworkEventId), { method:"PATCH", body: JSON.stringify({ description: desc }) });
-  }else{
-    const created = await api("/calendars/primary/events", { method:"POST", body: JSON.stringify({
-      summary:"（宿題データ／消さないでください）",
-      start:{ date:"2000-01-01" }, end:{ date:"2000-01-02" },
-      transparency:"transparent", visibility:"private",
-      description: desc,
-      extendedProperties:{ private:{ calappHomework:"1" } }
-    }) });
-    if(created) homeworkEventId = created.id;
-  }
-}
-/* テスト用：サンプルの宿題を1回だけ入れて表示を確認する（本番はアウトライナーが書く。フェーズ2で撤去） */
-async function seedHomework(){
-  const sample = { generated: new Date().toISOString(), items:[
-    { doc:"JFC260909", mark:"やる", note:"例えば、海外展開・事業再編資金。▲0.65%の2.5%となる。", text:"海外展開に係る計画書の提出が必要。サンプルを西澤会長へ。" },
-    { doc:"JFC260909", mark:"やる", depth:1, text:"融資規模のイメージについて会長に確認、加藤さんにフィードバック。公庫100-200m、三菱当貸200-400。" },
-    { doc:"TASKS", mark:"やる", text:"流山事業所の帳簿のズレのまとめ作成、西澤会長へ報告" },
-    { doc:"TASKS", mark:"やる", depth:1, text:"加工費原価の発生を細かく管理する仕組みづくり" },
-    { doc:"tasks(cal)", mark:"やる", text:"三菱FBデータ確定（9/18支払分）" }
-  ]};
-  try{ await upsertHomework(sample); homeworkData = sample; renderView(); toast("テスト宿題を入れました"); }
-  catch(err){ toast("失敗: "+(err.message||err)); }
-}
 function renderHomework(){
   if(!LIVE) return `<p class="empty-note">Googleに接続すると宿題が表示されます。</p>`;
   if(homeworkData === null){ loadHomeworkRemote(); return `<p class="empty-note">宿題を読み込み中…</p>`; }
   const all = homeworkData.items || [];
   if(!all.length){
-    return `<div class="hw"><p class="empty-note">宿題データがありません（アウトライナーからまだ書き込まれていません）。</p>
-      <p><button id="hwSeed" class="btn">テスト用の宿題を入れてみる</button></p></div>`;
+    return `<div class="hw"><p class="empty-note">宿題データがありません（アウトライナーから同期されます）。</p></div>`;
   }
   const isHi = it => (+it.depth||0) === 0;               // 上げた項目(depth0)＝優先度高＝黄色
   const items = hwHiOnly ? all.filter(isHi) : all;       // 「高のみ」で絞る
   const groups = [], idx = {};
   items.forEach(it=>{ const d = it.doc || "（無題）"; if(!(d in idx)){ idx[d]=groups.length; groups.push([d, []]); } groups[idx[d]][1].push(it); });
-  const cnt = hwHiOnly ? `高${items.length}件` : `${items.length}件`;
-  const stamp = `<p class="hw-stamp">${homeworkData.generated ? "更新 "+esc(fmtStamp(homeworkData.generated))+"　" : ""}${cnt} <button id="hwReseed" class="hw-reseed" title="サンプルを入れ直す（テスト用）">テスト再投入</button></p>`;
+  const cnt = hwHiOnly ? `高${items.length}` : `${items.length}`;
+  // 見出しは1行にまとめて場所を節約：宿題 · N件 · 更新HH:MM
+  const stamp = `<p class="hw-stamp"><b>宿題</b> ${cnt}件${homeworkData.generated ? " · 更新"+esc(fmtStamp(homeworkData.generated)) : ""}</p>`;
   const body = items.length ? groups.map(([doc, arr])=>
     `<section class="hw-doc"><h3 class="hw-doctitle">${esc(doc)}</h3>`
     + arr.map(it=>{
@@ -2509,12 +2477,7 @@ function renderHomework(){
     : `<p class="empty-note">優先度高の宿題はありません。</p>`;
   return `<div class="hw">${stamp}${body}</div>`;
 }
-function homeworkWire(){
-  const b = document.getElementById("hwSeed");
-  if(b) b.addEventListener("click", seedHomework);
-  const r = document.getElementById("hwReseed");
-  if(r) r.addEventListener("click", seedHomework);
-}
+function homeworkWire(){ /* 宿題は読むだけ（アウトライナーから同期）。配線なし */ }
 
 /* 保管用イベントを用意（無ければ作る）。一言 と ローカル済 を同じイベントに置く */
 async function ensureSettingsEvent(){
