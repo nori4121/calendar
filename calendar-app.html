@@ -649,7 +649,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b76";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b77";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -815,7 +815,7 @@ function renderCals(){
     cb.addEventListener("click", e=> e.stopPropagation());     // チェック操作で表示を切り替えない
     cb.addEventListener("change", ()=>{
       if(cb.checked) unfinCals.add(cb.dataset.cal); else unfinCals.delete(cb.dataset.cal);
-      saveUnfinCals(); renderView();                            // 「未済あり」を再集計
+      saveUnfinCals(); saveSettingsDesc(); renderView();        // localStorage＋Google共有に保存し、再集計
     });
   });
 }
@@ -2417,14 +2417,21 @@ async function loadBannerRemote(){
       requestAnimationFrame(()=> scrollToNow(false));
     }
     // ローカル済＋マトリクス配置（description に JSON で保存してある）を取り込む
+    let gotUnfin = false;
     try{ const d = JSON.parse(ev.description || "{}");
       if(Array.isArray(d.localDone)){ localDone = new Set(d.localDone);
         localStorage.setItem("cal_localdone", JSON.stringify([...localDone])); }
       if(d.matrixPos && typeof d.matrixPos === "object"){ matrixPos = d.matrixPos;
         localStorage.setItem("cal_matrixpos", JSON.stringify(matrixPos)); }
       if(d.taskSched && typeof d.taskSched === "object"){ taskSched = d.taskSched;
-        localStorage.setItem("cal_tasksched", JSON.stringify(taskSched)); } }catch(_){}
+        localStorage.setItem("cal_tasksched", JSON.stringify(taskSched)); }
+      if(Array.isArray(d.unfinCals)){ gotUnfin = true; unfinCals = new Set(d.unfinCals);   // 未済の対象カレンダー＝端末間で共有
+        try{ localStorage.setItem("cal_unfincals", JSON.stringify([...unfinCals])); }catch(_){}
+        renderCals(); }                                                       // ☑の状態を反映
+    }catch(_){}
     applyLocalDone();
+    if(!gotUnfin && unfinCals.size) saveSettingsDesc();   // 旧設定(端末ローカルの☑)を初回にGoogle共有へ移行
+    if(mode==="scroll"||mode==="week7") renderView();      // 未済バッジを反映（対象が届いた後）
   }catch(e){}
 }
 /* ============================================================
@@ -2506,13 +2513,14 @@ function saveSettingsDesc(){
     localStorage.setItem("cal_localdone", JSON.stringify([...localDone]));
     localStorage.setItem("cal_matrixpos", JSON.stringify(matrixPos));
     localStorage.setItem("cal_tasksched", JSON.stringify(taskSched));
+    localStorage.setItem("cal_unfincals", JSON.stringify([...unfinCals]));
   }catch(e){}
   if(!LIVE) return;
   clearTimeout(_descTimer);
   _descTimer = setTimeout(async ()=>{
     try{ const id = await ensureSettingsEvent(); if(!id) return;
       await api("/calendars/primary/events/"+encodeURIComponent(id),
-        { method:"PATCH", body: JSON.stringify({ description: JSON.stringify({ localDone:[...localDone], matrixPos, taskSched }) }) });
+        { method:"PATCH", body: JSON.stringify({ description: JSON.stringify({ localDone:[...localDone], matrixPos, taskSched, unfinCals:[...unfinCals] }) }) });
     }catch(e){}
   }, 700);
 }
