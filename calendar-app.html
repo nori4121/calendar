@@ -165,6 +165,13 @@
     background:var(--warn-bg);border:1px solid var(--warn);border-radius:999px;padding:1px 9px;
     margin-left:8px;white-space:nowrap;letter-spacing:.02em}
   .unfin-badge.d3{font-size:9.5px;padding:0 5px;margin-left:4px}
+  /* ストリーク（連続日数）バッジ：習慣名を小さく＋数字を大きく、間隔は詰める */
+  .sk-badge{display:inline-flex;align-items:baseline;gap:2px;margin-left:9px;white-space:nowrap}
+  .sk-badge .sk-l{font-family:var(--gothic);font-size:10px;letter-spacing:0}
+  .sk-n{font-family:var(--mono);font-size:18px;font-weight:600;letter-spacing:-.5px;line-height:1}
+  .sk-badge.faded .sk-n{font-weight:400}
+  .sk-d3{display:inline-flex;gap:5px;margin-left:5px}
+  .sk-d3 .sk-n{font-size:13px}
   /* 日ヘッダー（日付＋終日）を、その日を見ている間ずっと上に貼り付ける（sticky） */
   .tl-dayhead{position:sticky;top:var(--bannerH,0);z-index:12;background:var(--paper);
     border-bottom:1px solid var(--grid-strong);padding-bottom:6px}
@@ -649,7 +656,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b77";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b78";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -1241,7 +1248,7 @@ function renderScroll(days){
       ? `<span class="unfin-badge" title="前日〜1週間前に、対象カレンダーで済が付いていない予定">未済あり ${unfin}件</span>` : "";
     return `<section class="tl-day">
       <div class="tl-dayhead">
-        <div class="${lblCls}"><span class="dn">${+d.split("-")[2]}</span><span class="dw">${WK[k]}曜日 · ${md(d)}</span>${unfinBadge}</div>
+        <div class="${lblCls}"><span class="dn">${+d.split("-")[2]}</span><span class="dw">${WK[k]}曜日 · ${md(d)}</span>${unfinBadge}${streakBadgesHtml(d)}</div>
         ${ad ? `<div class="tl-allday"><span class="tl-adlabel">終日</span>${ad}</div>` : ""}
       </div>
       <div class="tl-grid" data-date="${d}" style="height:${24*PXH}px">${hoursCol()}${nowLine}${evs}</div>
@@ -1259,7 +1266,8 @@ function renderDay3(days){
     const k = wdOf(d);
     const cls = ["d3dh", k===0?"sun":k===6?"sat":"", d===TODAY?"today":""].join(" ");
     const ub = (d===TODAY && unfin>0) ? `<span class="unfin-badge d3" title="前日〜1週間前の未済">未済${unfin}</span>` : "";
-    return `<div class="${cls}"><span class="d3dn">${+d.split("-")[2]}</span><span class="d3dw">${WK[k]}</span>${ub}</div>`;
+    const sk = streakBadgesFor(d).map(b=>`<b class="sk-n" style="color:${b.faded?"var(--ink-faint)":streakColor(b.label)};font-weight:${b.faded?400:600}">${b.n}</b>`).join("");
+    return `<div class="${cls}"><span class="d3dn">${+d.split("-")[2]}</span><span class="d3dw">${WK[k]}</span>${ub}${sk?`<span class="sk-d3">${sk}</span>`:""}</div>`;
   }).join("");
   const hasAd = days.some(d=>vis.some(e=>onDay(e,d) && (e.allDay || !e.time)));
   const adRow = days.map(d=>`<div class="d3adcell">${allDayBtns(d,vis)}</div>`).join("");
@@ -2011,6 +2019,7 @@ async function loadLive(){
     renderCals(); renderView();
     loadBannerRemote();                   // 一言スペースの共有文章をGoogleから取得（届くとバナー高さが変わる）
     loadHomeworkRemote();                 // 宿題（アウトライナー由来）を隠しイベントから取得
+    loadStreakRemote();                   // ストリーク（TimerApp由来）を隠しイベントから取得
     toast("読み込み完了（"+events.length+"件）");
   }catch(err){
     const msg = String(err.message||err);
@@ -2485,6 +2494,57 @@ function renderHomework(){
   return `<div class="hw">${stamp}${body}</div>`;
 }
 function homeworkWire(){ /* 宿題は読むだけ（アウトライナーから同期）。配線なし */ }
+
+/* ============================================================
+   ストリーク（連続日数）：TimerApp が書く隠しイベント calappStreak=1 を読むだけ。
+   日付見出しに「習慣 連続数」を出す（達成=色付き／放置中=かすれ／消滅=無）。
+   ============================================================ */
+let streakData = null;                    // null=未取得 / {generated?, habits:[{label,current,lastDoneDate,status,graceUntil,days}]}
+let streakEventId = null;
+async function loadStreakRemote(){
+  if(!LIVE) return;
+  try{
+    const q = new URLSearchParams({ privateExtendedProperty:"calappStreak=1", maxResults:"1", singleEvents:"true" });
+    const data = await api("/calendars/primary/events?"+q.toString());
+    const ev = (data.items||[])[0];
+    if(!ev){ streakData = { habits:[] }; if(mode==="scroll"||mode==="week7") renderView(); return; }
+    streakEventId = ev.id;
+    let parsed = { habits:[] };
+    try{ parsed = JSON.parse(ev.description||"{}"); }catch(e){ parsed = { habits:[] }; }
+    if(!parsed || typeof parsed!=="object" || !Array.isArray(parsed.habits)) parsed = { habits:[] };
+    streakData = parsed;
+    if(mode==="scroll"||mode==="week7") renderView();
+  }catch(e){}
+}
+/* 習慣ごとの色（文字色）。未知のラベルはパレットを順に割り当て */
+const STREAK_COLORS = { "筋トレ":"#633806", "CIA":"#085041", "TOEIC":"#0C447C", "読書":"#993556" };
+const STREAK_PALETTE = ["#633806","#085041","#0C447C","#993556","#26215C","#993C1D"];
+function streakColor(label){
+  if(STREAK_COLORS[label]) return STREAK_COLORS[label];
+  const habits = (streakData && streakData.habits) || [];
+  const i = habits.findIndex(h=>h && h.label===label);
+  return STREAK_PALETTE[(i<0?0:i) % STREAK_PALETTE.length];
+}
+/* その日に出すバッジ一覧：達成日=days[日付]（濃）／放置中(lastDoneDate〜graceUntil)=current（かすれ） */
+function streakBadgesFor(ymdStr){
+  if(!streakData || !Array.isArray(streakData.habits)) return [];
+  const out = [];
+  for(const h of streakData.habits){
+    if(!h || !h.label) continue;
+    const days = h.days || {};
+    if(days[ymdStr] != null){
+      out.push({ label:h.label, n:days[ymdStr], faded:false });
+    }else if(h.status==="grace" && h.graceUntil && h.lastDoneDate && ymdStr > h.lastDoneDate && ymdStr <= h.graceUntil){
+      out.push({ label:h.label, n:h.current, faded:true });   // 放置中＝直前の連続数をかすれ表示
+    }
+  }
+  return out;
+}
+function streakBadgeHtml(b){
+  const col = b.faded ? "var(--ink-faint)" : streakColor(b.label);
+  return `<span class="sk-badge${b.faded?" faded":""}" style="color:${col}"><span class="sk-l">${esc(b.label)}</span><b class="sk-n">${b.n}</b></span>`;
+}
+function streakBadgesHtml(ymdStr){ return streakBadgesFor(ymdStr).map(streakBadgeHtml).join(""); }
 
 /* 保管用イベントを用意（無ければ作る）。一言 と ローカル済 を同じイベントに置く */
 async function ensureSettingsEvent(){
