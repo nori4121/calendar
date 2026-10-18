@@ -656,7 +656,7 @@ const CONFIG = {
   WEEKS_SHOWN: 2,
   MAX_EVENTS: 2500
 };
-const BUILD = "b78";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
+const BUILD = "b79";  // 画面に表示する版。キャッシュか実挙動かの切り分け用
 
 /* ============================================================
    状態
@@ -2381,6 +2381,8 @@ let bannerEventId = null;                 // Google側の保管用イベントID
 let bannerSaveTimer = null;
 let localDone = new Set();                // 読み取り専用の予定を「アプリ上だけ済（非表示）」にしたID
 try{ localDone = new Set(JSON.parse(localStorage.getItem("cal_localdone")||"[]")); }catch(e){}
+let settingsUpdatedAt = 0;                // 設定の最終更新時刻（版管理：古いリモートで上書きしない）
+try{ settingsUpdatedAt = +(localStorage.getItem("cal_updatedAt")||0) || 0; }catch(e){}
 function setBannerH(){                     // 固定バナーの高さを CSS 変数へ（3日ビューの見出し位置に使う）
   const b = document.querySelector(".banner");
   if(b) document.documentElement.style.setProperty("--bannerH", b.offsetHeight + "px");
@@ -2400,8 +2402,7 @@ function initBanner(){
     const txt = el.value;
     try{ localStorage.setItem("cal_banner", txt); }catch(e){}
     fitBanner();
-    clearTimeout(bannerSaveTimer);
-    bannerSaveTimer = setTimeout(()=>saveBannerRemote(txt), 900);   // 少し待ってからGoogleへ
+    scheduleSettingsPush(900);            // 少し待ってから設定ごとGoogleへ（版付き）
   });
   window.addEventListener("resize", fitBanner, { passive:true });
 }
@@ -2415,31 +2416,37 @@ async function loadBannerRemote(){
     if(!ev) return;
     bannerEventId = ev.id;
     const t = (ev.extendedProperties && ev.extendedProperties.private && ev.extendedProperties.private.banner) || "";
-    const el = document.getElementById("bannerText");
-    if(el && document.activeElement !== el){    // 編集中でなければ反映
-      el.value = t;
-      try{ localStorage.setItem("cal_banner", t); }catch(e){}
-      fitBanner();                              // ← ここでバナーの高さが変わる
+    // description(JSON)を読む。updatedAt で版を比較し、リモートが古ければ採用しない（上書き防止）
+    let d = {};
+    try{ d = JSON.parse(ev.description || "{}") || {}; }catch(_){ d = {}; }
+    const remoteUpdatedAt = +d.updatedAt || 0;
+    const accept = remoteUpdatedAt >= settingsUpdatedAt;   // リモートが新しい(か同じ)時だけ採用
+    if(accept){
+      const el = document.getElementById("bannerText");
+      if(el && document.activeElement !== el){    // 編集中でなければ反映
+        el.value = t;
+        try{ localStorage.setItem("cal_banner", t); }catch(e){}
+        fitBanner();                              // ← ここでバナーの高さが変わる
+      }
+      if(Array.isArray(d.localDone)){ localDone = new Set(d.localDone);
+        try{ localStorage.setItem("cal_localdone", JSON.stringify([...localDone])); }catch(_){} }
+      if(d.matrixPos && typeof d.matrixPos === "object"){ matrixPos = d.matrixPos;
+        try{ localStorage.setItem("cal_matrixpos", JSON.stringify(matrixPos)); }catch(_){} }
+      if(d.taskSched && typeof d.taskSched === "object"){ taskSched = d.taskSched;
+        try{ localStorage.setItem("cal_tasksched", JSON.stringify(taskSched)); }catch(_){} }
+      if(Array.isArray(d.unfinCals)){ unfinCals = new Set(d.unfinCals);   // 未済の対象カレンダー＝端末間で共有
+        try{ localStorage.setItem("cal_unfincals", JSON.stringify([...unfinCals])); }catch(_){}
+        renderCals(); }                                                       // ☑の状態を反映
+      settingsUpdatedAt = remoteUpdatedAt;        // 採用した版に追従
+      try{ localStorage.setItem("cal_updatedAt", String(settingsUpdatedAt)); }catch(_){}
     }
     if(scrollNowAfterBanner){                   // 高さ確定後に現在時刻へ寄せ直す（初回読み込み時のみ）
       scrollNowAfterBanner = false;
       requestAnimationFrame(()=> scrollToNow(false));
     }
-    // ローカル済＋マトリクス配置（description に JSON で保存してある）を取り込む
-    let gotUnfin = false;
-    try{ const d = JSON.parse(ev.description || "{}");
-      if(Array.isArray(d.localDone)){ localDone = new Set(d.localDone);
-        localStorage.setItem("cal_localdone", JSON.stringify([...localDone])); }
-      if(d.matrixPos && typeof d.matrixPos === "object"){ matrixPos = d.matrixPos;
-        localStorage.setItem("cal_matrixpos", JSON.stringify(matrixPos)); }
-      if(d.taskSched && typeof d.taskSched === "object"){ taskSched = d.taskSched;
-        localStorage.setItem("cal_tasksched", JSON.stringify(taskSched)); }
-      if(Array.isArray(d.unfinCals)){ gotUnfin = true; unfinCals = new Set(d.unfinCals);   // 未済の対象カレンダー＝端末間で共有
-        try{ localStorage.setItem("cal_unfincals", JSON.stringify([...unfinCals])); }catch(_){}
-        renderCals(); }                                                       // ☑の状態を反映
-    }catch(_){}
     applyLocalDone();
-    if(!gotUnfin && unfinCals.size) saveSettingsDesc();   // 旧設定(端末ローカルの☑)を初回にGoogle共有へ移行
+    // リモートが古い/版なし(旧データ)なら、ローカルの内容で上書き修復して版を付与
+    if(!accept || remoteUpdatedAt === 0) scheduleSettingsPush(400);
     if(mode==="scroll"||mode==="week7") renderView();      // 未済バッジを反映（対象が届いた後）
   }catch(e){}
 }
@@ -2558,32 +2565,41 @@ async function ensureSettingsEvent(){
   if(created) bannerEventId = created.id;
   return bannerEventId;
 }
-/* 一言をGoogleへ（extendedProperties.private.banner） */
-async function saveBannerRemote(text){
-  if(!LIVE) return;                          // 未接続なら端末保存のみ
-  try{ const id = await ensureSettingsEvent(); if(!id) return;
-    await api("/calendars/primary/events/"+encodeURIComponent(id),
-      { method:"PATCH", body: JSON.stringify({ extendedProperties:{ private:{ banner:text } } }) });
-  }catch(e){}
+/* 一言＋ローカル済＋配置＋タスク予定＋対象カレンダーを1件のイベントへまとめて保存。
+   updatedAt で版管理し、読み戻し時に「古いリモートで新しいローカルを上書き」しないようにする。 */
+function bannerCurrentText(){
+  const el = document.getElementById("bannerText");
+  if(el) return el.value;
+  try{ return localStorage.getItem("cal_banner") || ""; }catch(e){ return ""; }
 }
-/* ローカル済＋マトリクス配置を Google の設定用イベント(description)へ（端末にも即保存） */
-let _descTimer = null;
-function saveSettingsDesc(){
+let _settingsTimer = null;
+function scheduleSettingsPush(delay){
+  settingsUpdatedAt = Date.now();                  // ローカル変更＝版を進める
   try{
     localStorage.setItem("cal_localdone", JSON.stringify([...localDone]));
     localStorage.setItem("cal_matrixpos", JSON.stringify(matrixPos));
     localStorage.setItem("cal_tasksched", JSON.stringify(taskSched));
     localStorage.setItem("cal_unfincals", JSON.stringify([...unfinCals]));
+    localStorage.setItem("cal_banner", bannerCurrentText());
+    localStorage.setItem("cal_updatedAt", String(settingsUpdatedAt));
   }catch(e){}
-  if(!LIVE) return;
-  clearTimeout(_descTimer);
-  _descTimer = setTimeout(async ()=>{
-    try{ const id = await ensureSettingsEvent(); if(!id) return;
-      await api("/calendars/primary/events/"+encodeURIComponent(id),
-        { method:"PATCH", body: JSON.stringify({ description: JSON.stringify({ localDone:[...localDone], matrixPos, taskSched, unfinCals:[...unfinCals] }) }) });
-    }catch(e){}
-  }, 700);
+  if(!LIVE) return;                                  // 未接続なら端末保存のみ
+  clearTimeout(_settingsTimer);
+  _settingsTimer = setTimeout(pushSettings, delay || 700);
 }
+async function pushSettings(){
+  if(!LIVE) return;
+  try{ const id = await ensureSettingsEvent(); if(!id) return;
+    const text = bannerCurrentText();
+    await api("/calendars/primary/events/"+encodeURIComponent(id), { method:"PATCH", body: JSON.stringify({
+      extendedProperties:{ private:{ banner:text } },
+      description: JSON.stringify({ localDone:[...localDone], matrixPos, taskSched, unfinCals:[...unfinCals], updatedAt: settingsUpdatedAt })
+    }) });
+  }catch(e){}
+}
+/* 旧名は薄いラッパとして温存（多数の呼び出し元をそのまま使える） */
+async function saveBannerRemote(text){ scheduleSettingsPush(0); }
+function saveSettingsDesc(){ scheduleSettingsPush(700); }
 /* ローカル済のIDを、読み込んだ予定へ反映（済にして隠す） */
 function applyLocalDone(){
   let changed = false;
